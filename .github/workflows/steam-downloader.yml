@@ -1,133 +1,49 @@
-name: Steam Download Backend
+name: Steam Depot Downloader
 
 on:
   workflow_dispatch:
     inputs:
-      appid:
-        description: 'Steam App ID'
+      request_id:
+        description: '请求 UUID（对应 requests/ 目录下的 JSON 文件）'
         required: true
         type: string
-      depots:
-        description: 'Depot IDs (comma-separated)'
-        required: true
-        type: string
-      action:
-        description: 'Action: info | manifests | download'
-        required: true
-        default: 'info'
-        type: choice
-        options:
-          - info
-          - manifests
-          - download
 
 jobs:
-  steam-query:
+  download:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Get App Info
-        id: appinfo
-        if: inputs.action == 'info' || inputs.action == 'manifests'
+      - name: Read request
+        id: request
         run: |
-          APPID="${{ inputs.appid }}"
-          echo "Fetching info for AppID: $APPID"
-          INFO=$(curl -s "https://api.steamcmd.net/v1/info/$APPID")
-          echo "APPINFO<<EOF" >> $GITHUB_OUTPUT
-          echo "$INFO" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-          echo "status=success" >> $GITHUB_OUTPUT
+          REQ_FILE="requests/${{ inputs.request_id }}.json"
+          if [ ! -f "$REQ_FILE" ]; then
+            echo "::error::Request file not found: $REQ_FILE"
+            exit 1
+          fi
+          echo "size=$(wc -c < "$REQ_FILE")" >> "$GITHUB_OUTPUT"
 
-      - name: Fetch Manifests
-        id: manifests
-        if: inputs.action == 'manifests' || inputs.action == 'download'
-        run: |
-          APPID="${{ inputs.appid }}"
-          DEPOTS="${{ inputs.depots }}"
-          RESULTS="{}"
-          
-          IFS=',' read -ra DEPOT_ARRAY <<< "$DEPOTS"
-          for DEPOT in "${DEPOT_ARRAY[@]}"; do
-            DEPOT=$(echo "$DEPOT" | xargs)
-            echo "Processing depot: $DEPOT"
-            
-            # Get depot info from steamcmd API
-            INFO=$(curl -s "https://api.steamcmd.net/v1/info/$APPID" | jq -c ".data.depots[\"$DEPOT\"]")
-            MANIFEST_ID=$(echo "$INFO" | jq -r '.manifests.public.gid // .public.gid // ""')
-            
-            if [ -n "$MANIFEST_ID" ] && [ "$MANIFEST_ID" != "null" ]; then
-              echo "Depot $DEPOT → Manifest: $MANIFEST_ID"
-              
-              # Try to get request code from multiple sources
-              for SOURCE in "https://manifest.steam.ooo/$MANIFEST_ID" \
-                            "http://gmrc.wudrm.com/manifest/$MANIFEST_ID" \
-                            "https://manifest.steam.run/api/manifest/$MANIFEST_ID"; do
-                RC=$(curl -sL --max-time 15 "$SOURCE" | head -50)
-                if [ -n "$RC" ] && [ "$(echo "$RC" | wc -c)" -gt 2 ]; then
-                  echo "Got request code from $SOURCE"
-                  RESULTS=$(echo "$RESULTS" | jq -c --arg d "$DEPOT" --arg m "$MANIFEST_ID" --arg rc "$(echo "$RC" | tr -d '\n')" \
-                    '.depots += [{"depot": $d|tonumber, "manifest": $m, "request_code": $rc}]' 2>/dev/null)
-                  break
-                fi
-              done
-              
-              if [ -z "$(echo "$RESULTS" | jq -r ".depots[] | select(.depot == $DEPOT)" 2>/dev/null)" ]; then
-                RESULTS=$(echo "$RESULTS" | jq -c --arg d "$DEPOT" --arg m "$MANIFEST_ID" \
-                  '.depots += [{"depot": $d|tonumber, "manifest_id": $m, "request_code": "NOT_FOUND"}]' 2>/dev/null)
-              fi
-            else
-              echo "No manifest found for depot $DEPOT"
-            fi
-          done
-          
-          echo "MANIFEST_RESULT<<EOF" >> "$GITHUB_OUTPUT"
-          echo "$RESULTS" >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
-          echo "🏁 Manifest query complete"
+      - name: Write manifest files
+        run: python3 scripts/download.py prepare "${{ inputs.request_id }}"
 
-      - name: Download Manifests
-        if: inputs.action == 'download'
-        run: |
-          APPID="${{ inputs.appid }}"
-          DEPOTS="${{ inputs.depots }}"
-          mkdir -p output
-          
-          IFS=',' read -ra DEPOT_ARRAY <<< "$DEPOTS"
-          for DEPOT in "${DEPOT_ARRAY[@]}"; do
-            DEPOT=$(echo "$DEPOT" | xargs)
-            echo "Processing depot $DEPOT"
-            
-            # Get manifest ID
-            INFO=$(curl -s "https://api.steamcmd.net/v1/info/$APPID" | jq -c ".data.depots[\"$DEPOT\"]")
-            MANIFEST_ID=$(echo "$INFO" | jq -r '.manifests.public.gid // .public.gid // ""')
-            
-            if [ -n "$MANIFEST_ID" ] && [ "$MANIFEST_ID" != "null" ]; then
-              # Try to get request code
-              for SOURCE in "https://manifest.steam.ooo/$MANIFEST_ID" \
-                            "http://gmrc.wudrm.com/manifest/$MANIFEST_ID" \
-                            "https://manifest.steam.run/api/manifest/$MANIFEST_ID"; do
-                RC=$(curl -sL --connect-timeout 15 "$SOURCE" | head -50 | tr -d '\n')
-                if [ -n "$RC" ] && [ "$(echo "$RC" | wc -c)" -gt 2 ]; then
-                  echo "Got RC for depot $DEPOT"
-                  echo "$RC" > "manifests/${DEPOT}_request_code.txt"
-                  echo "${MANIFEST_ID}" > "manifests/${DEPOT}_manifest_id.txt"
-                  
-                  # Download manifest file from CDN
-                  curl -sL "http://steampipe.akamaized.net/depot/${DEPOT}/manifest/${MANIFEST_ID}/5/${RC}" \
-                    -o "manifests/${DEPOT}_manifest.bin" 2>&1
-                  
-                  ls -la "manifests/"
-                  break
-                fi
-              done
-            fi
-          done
+      - name: Download DepotDownloader
+        run: python3 scripts/download.py download-dd
 
-      - name: Upload artifacts
+      - name: Download depots
+        run: python3 scripts/download.py run "${{ inputs.request_id }}"
+
+      - name: Package game
+        run: python3 scripts/download.py package "${{ inputs.request_id }}"
+
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: steam-results-${{ inputs.appid }}
-          path: |
-            manifests/
-          retention-days: 3
+          name: steam-game-${{ inputs.request_id }}
+          path: game-${{ inputs.request_id }}.zip
+          retention-days: 7
+
+      - name: Cleanup request file
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/download.py cleanup "${{ inputs.request_id }}"

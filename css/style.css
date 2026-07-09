@@ -125,6 +125,15 @@ body {
   accent-color: var(--title-fg);
 }
 
+.local-status {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: rgba(0,0,0,0.3);
+  cursor: help;
+  white-space: nowrap;
+}
+
 /* --- 主布局 --- */
 #main-container {
   flex: 1;

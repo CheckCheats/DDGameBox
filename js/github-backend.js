@@ -12,6 +12,7 @@ class GitHubBackend {
     this.token = options.token || null;
     this.timeout = options.timeout || 15000;
     this.pollInterval = options.pollInterval || 15000;
+    this.log = options.log || null;
 
     this._cache = new Map();
     this._runningJobs = new Map();
@@ -233,6 +234,120 @@ class GitHubBackend {
   /** 获取 Releases */
   async getReleases() {
     return this._apiRequest('/releases?per_page=10');
+  }
+
+  /* =================================================================
+     文件操作: 推送到仓库 (Contents API)
+     ================================================================= */
+
+  /** 推送文件到仓库 (自动 base64 编码) */
+  async pushFile(path, content, message = 'update file') {
+    const b64 = btoa(unescape(encodeURIComponent(content)));
+    // 检查文件是否已存在（获取 SHA）
+    let sha = null;
+    try {
+      const existing = await this._apiRequest(`/contents/${path}`);
+      if (existing?.sha) sha = existing.sha;
+    } catch (e) {
+      if (e.message?.startsWith('GitHub 404')) sha = null; // 新文件
+      else if (e.message?.startsWith('GitHub 403')) throw new Error('Token 无 contents 写入权限');
+      else throw e;
+    }
+    const body = {
+      message: sha ? `update: ${message}` : `create: ${message}`,
+      content: b64,
+      branch: 'master'
+    };
+    if (sha) body.sha = sha;
+    return this._apiRequest(`/contents/${path}`, 'PUT', body);
+  }
+
+  /** 删除文件 */
+  async deleteFile(path, message = 'cleanup') {
+    const existing = await this._apiRequest(`/contents/${path}`);
+    if (!existing?.sha) throw new Error('File not found');
+    return this._apiRequest(`/contents/${path}`, 'DELETE', {
+      message: `delete: ${message}`,
+      sha: existing.sha,
+      branch: 'master'
+    });
+  }
+
+  /* =================================================================
+     完整下载请求流程: 推送数据 → 触发 Actions → 获取 Artifact
+     ================================================================= */
+
+  /**
+   * 提交下载请求:
+   * 1. 将 payload 推送到 requests/{uuid}.json
+   * 2. 触发 workflow_dispatch
+   * 3. 返回 { requestId, runId }
+   */
+  async submitDownloadRequest(payload) {
+    const uuid = crypto.randomUUID ? crypto.randomUUID()
+      : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+          const r = Math.random() * 16 | 0;
+          return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+        });
+
+    const path = `requests/${uuid}.json`;
+    const payloadStr = JSON.stringify(payload);
+
+    this.log?.(`📤 推送请求数据到 ${path}...`);
+    await this.pushFile(path, payloadStr, `下载请求 ${uuid}`);
+
+    // 等待几秒确保 GitHub 处理好 commit，再触发 workflow
+    await new Promise(r => setTimeout(r, 3000));
+
+    this.log?.(`🚀 触发 Steam Depot Downloader...`);
+    const run = await this.triggerWorkflow('steam-downloader.yml', {
+      request_id: uuid
+    });
+
+    return {
+      requestId: uuid,
+      runId: run?.id || null,
+      runUrl: run?.html_url || null
+    };
+  }
+
+  /** 获取 Artifact 下载 URL */
+  async getArtifactDownloadUrl(runId) {
+    const result = await this._apiRequest(`/actions/runs/${runId}/artifacts`);
+    if (!result?.artifacts?.length) return null;
+    const art = result.artifacts[0];
+    return {
+      id: art.id,
+      name: art.name,
+      size: art.size_in_bytes,
+      downloadUrl: `${this.apiBase}/actions/artifacts/${art.id}/zip`
+    };
+  }
+
+  /** 轮询工作流直到完成 */
+  async pollUntilDone(runId, onProgress, timeoutMs = 30 * 60 * 1000) {
+    const start = Date.now();
+    let lastStatus = '';
+
+    while (Date.now() - start < timeoutMs) {
+      const run = await this.pollWorkflow(runId);
+      const status = run.conclusion || run.status;
+
+      if (status !== lastStatus) {
+        const elapsed = ((Date.now() - start) / 1000 / 60).toFixed(1);
+        onProgress?.(`status: ${status} (${elapsed}min)`);
+        lastStatus = status;
+      }
+
+      if (run.conclusion === 'success') return { success: true, run };
+      if (run.conclusion === 'failure') return { success: false, error: '工作流失败', run };
+      if (run.conclusion === 'cancelled') return { success: false, error: '工作流已取消', run };
+      if (run.status === 'completed' && run.conclusion === 'skipped') return { success: false, error: '工作流跳过', run };
+
+      await new Promise(r => setTimeout(r, 15000));
+    }
+
+    return { success: false, error: '等待超时 (30分钟)' };
   }
 }
 

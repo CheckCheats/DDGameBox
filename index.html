@@ -48,8 +48,10 @@ html,body{height:100%;font-family:system-ui,'Segoe UI','Microsoft YaHei',sans-se
       <button id="ghSaveTokenBtn" class="btn btn-small" title="保存到云端">💾</button>
       <button id="ghQuickTokenBtn" class="btn-quick" title="一键获取 Token">⚡</button>
       <button id="ghTokenHelpBtn" class="btn btn-small" title="帮助">❓</button>
-      <div class="backend-selector">
-        <label><input type="radio" name="backend" value="github" checked> GitHub</label>
+      <span id="localStatus" class="local-status" title="本地代理状态">☁️ 远程</span>
+        <div class="backend-selector">
+        <label><input type="radio" name="backend" value="local"> 🖥️ 本地</label>
+        <label><input type="radio" name="backend" value="github" checked> ☁️ GitHub</label>
         <label><input type="radio" name="backend" value="cors"> CORS</label>
       </div>
     </div>

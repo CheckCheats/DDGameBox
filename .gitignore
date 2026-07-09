@@ -1,5 +1,8 @@
 *.exe
 *.dll
 DepotDownloader/
-*.json
+requests/
+.local_downloads/
 .hermes/
+__pycache__/
+*.pyc
