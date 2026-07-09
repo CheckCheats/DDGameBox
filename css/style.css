@@ -431,3 +431,21 @@ body {
   color: var(--title-bg);
 }
 .token-help a { color: var(--link); text-decoration: underline; }
+
+/* --- 快速 Token 按钮 ⚡ 高亮 --- */
+.btn-quick {
+  padding: 6px 10px;
+  font-size: 12px;
+  border-radius: 4px;
+  border: 1px solid #ffd70055;
+  background: linear-gradient(135deg, #ffd70022, #ff8c0022);
+  color: #ffd700;
+  cursor: pointer;
+  transition: .2s;
+}
+.btn-quick:hover {
+  background: linear-gradient(135deg, #ffd70044, #ff8c0044);
+  border-color: #ffd700;
+  transform: scale(1.05);
+}
+.btn-quick:active { transform: scale(.95); }

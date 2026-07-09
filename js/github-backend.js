@@ -1,221 +1,211 @@
 /* ================================================================
-   GitHub API Backend Client
-   Uses api.github.com (accessible, unlike Pages) as backend proxy
-   
-   Features:
-   1. Query Steam info via GitHub Actions
-   2. Trigger Steam manifest downloads via workflow_dispatch
-   3. Poll GitHub API for results
-   4. Use GitHub Releases for file distribution
+   GitHub API Backend Client v2.2
+   - Gist 数据库: 用户配置云端持久化
+   - 快速 API 状态检测 (HEAD)
+   - Actions 触发 / 轮询
    ================================================================ */
 
 class GitHubBackend {
   constructor(options = {}) {
     this.repo = options.repo || 'CheckCheats/DDGameBox';
     this.apiBase = `https://api.github.com/repos/${this.repo}`;
-    this.token = options.token || null; // Optional: for higher rate limits
-    this.timeout = options.timeout || 30000;
-    this.pollInterval = options.pollInterval || 15000; // 15s between polls
-    
+    this.token = options.token || null;
+    this.timeout = options.timeout || 15000;
+    this.pollInterval = options.pollInterval || 15000;
+
     this._cache = new Map();
     this._runningJobs = new Map();
+    // Gist ID cookie key
+    this.GIST_COOKIE = 'ddgist';
   }
 
-  /**
-   * GitHub API request with auth/rate-limit handling
-   */
+  /* =================================================================
+     GitHub API 基础请求 (带认证/限速处理)
+     ================================================================= */
   async _apiRequest(path, method = 'GET', body = null) {
     const url = path.startsWith('http') ? path : `${this.apiBase}${path}`;
     const headers = {
       'Accept': 'application/vnd.github+json',
-      'Content-Type': 'application/json',
     };
-    
-    if (this.token) {
-      headers['Authorization'] = `Bearer ${this.token}`;
-    }
+    if (body) headers['Content-Type'] = 'application/json';
+    if (this.token) headers['Authorization'] = `Bearer ${this.token}`;
 
-    const options = { 
-      method, 
-      headers,
+    const resp = await fetch(url, {
+      method, headers,
+      body: body ? JSON.stringify(body) : null,
       signal: AbortSignal.timeout(this.timeout)
-    };
-    
-    if (body) {
-      options.body = JSON.stringify(body);
-    }
+    });
 
-    const resp = await fetch(url, options);
-    
-    // Handle rate limiting
     if (resp.status === 429) {
-      const retryAfter = parseInt(resp.headers.get('Retry-After') || '60');
-      throw new Error(`API 限速，${retryAfter}秒后重试`);
+      const s = parseInt(resp.headers.get('Retry-After') || '60');
+      throw new Error(`API限速，${s}秒后重试`);
     }
-    
     if (resp.status === 403 && resp.headers.get('X-RateLimit-Remaining') === '0') {
-      throw new Error('API 次数用尽，等待重置');
+      throw new Error('API次数用尽，重置中...');
     }
-
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({}));
-      throw new Error(`GitHub API ${resp.status}: ${err.message || '未知错误'}`);
+      throw new Error(`GitHub ${resp.status}: ${err.message || '?'}`);
     }
-
     return resp.json();
   }
 
-  /**
-   * Get rate limit status
-   */
+  /* =================================================================
+     快速 API 状态检测 (HEAD)
+     ================================================================= */
+  async quickCheck() {
+    const result = { ok: false, authed: false, remaining: 0 };
+    try {
+      const resp = await fetch('https://api.github.com/rate_limit', {
+        method: 'HEAD',
+        headers: this.token ? { 'Authorization': `Bearer ${this.token}` } : {},
+        signal: AbortSignal.timeout(5000)
+      });
+      result.ok = resp.ok;
+      if (resp.ok) {
+        result.remaining = parseInt(resp.headers.get('X-RateLimit-Remaining') || '0');
+        result.authed = !!this.token;
+      }
+    } catch {}
+    return result;
+  }
+
+  /* =================================================================
+     Rate Limit 详细
+     ================================================================= */
   async getRateLimit() {
     return this._apiRequest('https://api.github.com/rate_limit');
   }
 
-  /**
-   * Trigger a workflow dispatch (start a download job)
-   */
+  /* =================================================================
+     触发 Actions 工作流
+     ================================================================= */
   async triggerWorkflow(workflowFile, inputs) {
-    const body = {
+    await this._apiRequest(`/actions/workflows/${workflowFile}/dispatches`, 'POST', {
       ref: 'master',
-      inputs: inputs
-    };
-    
-    await this._apiRequest(
-      `/actions/workflows/${workflowFile}/dispatches`,
-      'POST',
-      body
-    );
-    
-    // Wait a bit for the run to appear
+      inputs
+    });
     await new Promise(r => setTimeout(r, 2000));
-    
-    // Find the run ID
     const runs = await this._apiRequest('/actions/runs?per_page=5');
-    const matchingRun = runs.workflow_runs.find(r => 
-      r.name === 'Steam Download Backend' && 
-      r.status !== 'completed'
-    );
-    
-    if (matchingRun) {
-      this._runningJobs.set(matchingRun.id.toString(), {
-        runId: matchingRun.id,
-        status: matchingRun.status,
-        startTime: Date.now()
-      });
-      return matchingRun;
+    const match = runs.workflow_runs.find(r => r.status !== 'completed');
+    if (match) {
+      this._runningJobs.set(match.id.toString(), { runId: match.id, status: match.status, startTime: Date.now() });
+      return match;
     }
-    
     return null;
   }
 
-  /**
-   * Poll a workflow run for completion
-   */
   async pollWorkflow(runId) {
     const run = await this._apiRequest(`/actions/runs/${runId}`);
     const job = this._runningJobs.get(runId.toString());
-    if (job) {
-      job.status = run.status;
-    }
+    if (job) job.status = run.status;
     return run;
   }
 
-  /**
-   * Get workflow run artifacts
-   */
-  async getArtifacts(runId) {
-    return this._apiRequest(`/actions/runs/${runId}/artifacts`);
+  /* =================================================================
+     Gist 数据库 — 用户 Token / 配置云持久化
+     ================================================================= */
+
+  /** 获取 Gist ID (从 cookie) */
+  getGistId() {
+    const m = document.cookie.match(new RegExp(`(?:^|; )${this.GIST_COOKIE}=([^;]*)`));
+    return m ? decodeURIComponent(m[1]) : null;
   }
 
-  /**
-   * Download an artifact (returns URL, not the file - use browser to download)
-   */
-  async downloadArtifact(artifactId) {
-    // Returns archive_download_url - browser can fetch with auth
-    const artifact = await this._apiRequest(`/actions/artifacts/${artifactId}`);
-    return artifact.archive_download_url;
+  /** 保存 Gist ID 到 cookie (365天) */
+  _saveGistId(id) {
+    document.cookie = `${this.GIST_COOKIE}=${encodeURIComponent(id)};max-age=${60*60*24*365};path=/;SameSite=Lax`;
   }
 
-  /**
-   * Query Steam app info via GitHub Actions
+  /** 
+   * 读取用户配置: 从 Gist 加载 token
+   * 需要用户已保存 token (用 token 读自己的 gist)
    */
-  async querySteamInfo(appid) {
-    const cacheKey = `steam:${appid}`;
-    if (this._cache.has(cacheKey)) return this._cache.get(cacheKey);
-
-    // Trigger workflow with action='info'
-    const run = await this.triggerWorkflow('steam-downloader.yml', {
-      appid: appid.toString(),
-      depots: '',
-      action: 'info'
-    });
-
-    if (!run) {
-      // Fallback: query steamcmd API directly via GitHub proxy
-      return this._fallbackSteamInfo(appid);
-    }
-
-    // Poll until complete
-    let result = null;
-    for (let i = 0; i < 20; i++) { // max 5 minutes
-      await new Promise(r => setTimeout(r, this.pollInterval));
-      const status = await this.pollWorkflow(run.id);
-      
-      if (status.conclusion === 'success') break;
-      if (status.conclusion === 'failure') throw new Error('查询失败');
-    }
-
-    // Get artifact with results
-    const artifacts = await this.getArtifacts(run.id);
-    if (artifacts.artifacts?.length > 0) {
-      // TODO: download and parse artifact
-      result = { appid, status: 'fetched' };
-    }
-
-    this._cache.set(cacheKey, result);
-    return result;
-  }
-
-  /**
-   * Fallback: query Steam API directly via GitHub API's rate limit
-   * (GitHub API from this region can reach steamcmd.net)
-   */
-  async _fallbackSteamInfo(appid) {
-    // Use GitHub's raw content as a proxy mechanism
-    // Create an issue comment with the query, the action parses it
-    // For now, try direct access
+  async loadUserConfig() {
+    const gistId = this.getGistId();
+    if (!gistId || !this.token) return null;
     try {
-      const resp = await fetch(`https://api.steamcmd.net/v1/info/${appid}`, {
-        signal: AbortSignal.timeout(15000)
-      });
-      if (resp.ok) {
-        const data = await resp.json();
-        this._cache.set(`steam:${appid}`, data);
-        return data;
+      const gist = await this._gistRequest(gistId);
+      const file = gist.files?.['ddbox-config.json'];
+      if (file?.content) {
+        const cfg = JSON.parse(file.content);
+        this._cache.set('user_config', cfg);
+        return cfg;
       }
     } catch {}
     return null;
   }
 
   /**
-   * Search GitHub Releases for uploaded files
+   * 保存用户配置到 Gist
+   * 自动创建/更新 Gist, 返回 { success, gistId }
    */
-  async getReleases() {
-    return this._apiRequest('/releases?per_page=10');
+  async saveUserConfig(data) {
+    if (!this.token) throw new Error('需要 Token 才能保存配置');
+
+    let gistId = this.getGistId();
+    const content = JSON.stringify({ ...data, updated: Date.now() }, null, 2);
+
+    if (gistId) {
+      // 更新已有 Gist
+      try {
+        await this._gistRequest(gistId, 'PATCH', {
+          files: { 'ddbox-config.json': { content } }
+        });
+        this._cache.set('user_config', data);
+        return { success: true, gistId };
+      } catch {
+        // Gist 可能被删了, 重新创建
+        gistId = null;
+      }
+    }
+
+    // 创建新 Gist
+    const gist = await this._gistRequest(null, 'POST', {
+      description: 'DD Game Box - 用户配置',
+      public: false,
+      files: { 'ddbox-config.json': { content } }
+    });
+    this._saveGistId(gist.id);
+    this._cache.set('user_config', data);
+    return { success: true, gistId: gist.id };
   }
 
   /**
-   * Create a release (upload results)
+   * Gist API 请求 (跨域, 不经过 repo)
    */
-  async createRelease(tagName, name, body) {
-    return this._apiRequest('/releases', 'POST', {
-      tag_name: tagName,
-      name: name,
-      body: body,
-      draft: false,
-      prerelease: false
+  async _gistRequest(gistId, method = 'GET', body = null) {
+    const url = gistId
+      ? `https://api.github.com/gists/${gistId}`
+      : 'https://api.github.com/gists';
+    const headers = {
+      'Accept': 'application/vnd.github+json',
+      'Content-Type': 'application/json',
+    };
+    if (this.token) headers['Authorization'] = `Bearer ${this.token}`;
+
+    const resp = await fetch(url, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : null,
+      signal: AbortSignal.timeout(15000)
     });
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      // 404 = gist 不存在, 清除 cookie
+      if (resp.status === 404 && gistId) {
+        document.cookie = `${this.GIST_COOKIE}=;max-age=0;path=/`;
+        this._cache.delete('user_config');
+      }
+      throw new Error(`Gist ${resp.status}: ${err.message || '?'}`);
+    }
+    return resp.json();
+  }
+
+  /** 获取 Releases */
+  async getReleases() {
+    return this._apiRequest('/releases?per_page=10');
   }
 }
 
