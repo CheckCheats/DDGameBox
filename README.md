@@ -8,9 +8,10 @@
 |------|------|
 | ⭐ CDN (推荐) | https://cdn.jsdelivr.net/gh/CheckCheats/DDGameBox@master/index.html |
 | GitHub Pages | https://checkcheats.github.io/DDGameBox/ |
-| 本地 | 直接打开 `index.html` |
+| ⭐ CDN (备选) | https://cdn.jsdelivr.net/gh/CheckCheats/DDGameBox@master/index.html |
 
-> Pages 在部分网络可能不可达, 优先使用 CDN 链接
+> 优先使用 GitHub Pages，CDN 链接在某些浏览器可能以 text/plain 显示源码
+> 如果 CDN 打开是字符源码 → 请改用 GitHub Pages 链接
 
 ## 🔒 密码保护
 
