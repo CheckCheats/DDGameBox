@@ -584,20 +584,13 @@ class DDGameBoxApp {
   }
 
   /* =================================================================
-     方式2: GitHub Actions 下载 (新 — 直接推 manifests 到仓库)
+     方式2: GitHub Actions 下载 (新 — 直接传参数, 无需推 manifests 文件)
      ================================================================= */
   async _fetchViaGitHub(r, depotIds) {
-    this._addProgress('github', '🔗 GitHub Actions 下载', 0);
-    if (!this.github.token) {
-      this._updateProgress('github', 100);
-      this.log('⚠️ 未配置 Token → 点击 ⚡ 获取', 'warn');
-      this.dom.tokenHelpOverlay.style.display = 'flex';
-      throw new Error('请先设置 GitHub Token');
-    }
-    this._updateProgress('github', 5);
-    this.log('📡 准备推送到 GitHub 仓库...', 'api');
-
-    // 构建 payload（同本地模式一样，包含 manifests）
+    this._addProgress('github', '☁️ GitHub Actions 下载', 0);
+    
+    // 先解析参数（不管有没有 token 都解析）
+    // 提取密钥
     const keys = {};
     for (const d of r.depots) {
       if (d.sha) keys[d.id] = d.sha;
@@ -606,119 +599,155 @@ class DDGameBoxApp {
       keys[t.appid] = t.token;
     }
 
-    // 将 .manifest 文件转为 base64
-    const manifests = [];
-
-    // 1. 从 ZIP 提取的 .manifest 二进制文件
+    // 从 manifest 文件名提取 depotId + manifestId
+    // 文件名格式: {depotId}_{manifestId}.manifest
+    const manifestMap = {}; // { depotId: manifestId }
     if (this._zipManifestFiles && this._zipManifestFiles.length > 0) {
       for (const mf of this._zipManifestFiles) {
-        try {
-          const arrayBuf = await mf.data.arrayBuffer();
-          const bytes = new Uint8Array(arrayBuf);
-          let binary = '';
-          const chunkSize = 0x8000;
-          for (let i = 0; i < bytes.length; i += chunkSize) {
-            binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+        const name = mf.name || '';
+        const parts = name.replace('.manifest', '').split('_');
+        if (parts.length >= 2) {
+          const depotId = parseInt(parts[0], 10);
+          const manifestId = parts.slice(1).join('_'); // manifest ID 可能包含下划线
+          if (depotId && manifestId && /^\d+$/.test(manifestId)) {
+            manifestMap[depotId] = manifestId;
+            this.log(`📌 depot ${depotId} → manifest ${manifestId}`, 'info');
           }
-          const b64 = btoa(binary);
-          manifests.push({
-            filename: mf.name,
-            depotId: mf.depotId,
-            content_b64: b64,
-            is_binary: true,
-            size: bytes.length
-          });
-          this.log(`📦 manifest: ${mf.name} (${(bytes.length/1024).toFixed(1)}KB)`, 'info');
-        } catch (e) {
-          this.log(`⚠️ ${mf.name} 编码失败: ${e.message}`, 'warn');
         }
       }
     }
 
-    // 2. 从文本数据来的 manifest
-    for (const m of this.manifestData) {
-      let depotId = null;
-      const idMatch = m.name ? m.name.match(/(\d+)/) : null;
-      if (idMatch) depotId = parseInt(idMatch[1], 10);
-      const content = typeof m.content === 'string' ? m.content : (m.data || '');
-      if (content && !manifests.find(x => x.filename === (m.name || `${depotId}.manifest`))) {
-        manifests.push({
-          filename: m.name || `${depotId}.manifest`,
-          depotId: depotId,
-          content: content,
-          is_binary: false
+    if (Object.keys(manifestMap).length === 0) {
+      this.log('⚠️ 未找到有效的 .manifest 文件，无法提取 manifest ID', 'warn');
+      this._updateProgress('github', 100);
+      return;
+    }
+
+    // 只处理目标 app 的 depot（过滤掉 ZIP 里混入的其他游戏的 manifest）
+    const allowedDepotIds = new Set(depotIds);
+    const depotsToDownload = [];
+
+    for (const d of r.depots) {
+      const did = d.id;
+      const mid = manifestMap[did];
+      const key = keys[did] || '';
+      if (mid) {
+        depotsToDownload.push({
+          id: did,
+          manifestId: mid,
+          key: key
         });
       }
     }
 
-    const payload = {
-      appid: String(r.appid || ''),
-      depots: r.depots,
-      manifests: manifests,
-      keys: keys
-    };
-
-    this.log(`📦 payload: ${depotIds.length} depots, ${manifests.length} manifests, ${(JSON.stringify(payload).length/1024).toFixed(1)}KB`, 'info');
-    this._updateProgress('github', 15);
-
-    try {
-      // 1. 推送文件 + 触发工作流
-      this.log('⏫ 推送到 GitHub 仓库...', 'info');
-      const result = await this.github.submitDownloadRequest(payload);
-      this._updateProgress('github', 25);
-
-      if (!result.runId) {
-        // pushFile 成功了但 triggerWorkflow 返回 null（CORS 或 rate limit）
-        this.log('⚠️ 工作流触发可能失败，检查 Actions 页面', 'warn');
-        this.log(`📁 请求数据已推送到: requests/${result.requestId}.json`, 'info');
-        this.log('💡 可手动前往 Actions 触发 steam-downloader.yml', 'info');
-        return;
-      }
-
-      this.triggeredWorkflow = { id: result.runId, html_url: result.runUrl };
-      this.log(`✅ 工作流 #${result.runId} 已触发`, 'success');
-      this.log(`🔗 ${result.runUrl}`, 'info');
-      this._updateProgress('github', 30);
-
-      // 2. 轮询等待
-      this._addProgress('poll', '⏳ 下载中... (5-30分钟)', 30);
-      this.log('⏳ 等待 GitHub Actions 完成...', 'info');
-
-      const pollResult = await this.github.pollUntilDone(result.runId, (msg) => {
-        this.log(`📡 ${msg}`, 'info');
-      });
-
-      if (pollResult.success) {
-        this._updateProgress('poll', 90);
-        this.log('🎉 Actions 完成!', 'success');
-
-        // 3. 下载 artifact
-        try {
-          await this._downloadGitHubArtifact(result.runId, r.appid);
-          this._updateProgress('poll', 100);
-          this._updateProgress('github', 100);
-        } catch (e) {
-          this.log(`⚠️ artifact 下载失败: ${e.message}`, 'warn');
-          this.log('💡 去 Actions 页面手动下载: ' + result.runUrl, 'info');
-          this._updateProgress('poll', 100);
-        }
-      } else {
-        throw new Error(pollResult.error || '工作流异常');
-      }
-    } catch (e) {
-      if (e.message.includes('权限') || e.message.includes('403')) {
-        this.log('❌ Token 权限不足，需要 repo (contents:write) 权限', 'error');
-      } else if (e.message.includes('超时')) {
-        this.log('❌ ' + e.message, 'error');
-        this.log('💡 大型游戏可能耗时较长，可前往 Actions 检查进度', 'info');
-      } else {
-        throw e;
+    // 也处理 manifest 文件中有但 r.depots 没有的
+    for (const didStr of Object.keys(manifestMap)) {
+      const did = parseInt(didStr, 10);
+      if (!allowedDepotIds.has(did)) {
+        this.log(`⚠️ manifest depot ${did} 不属于 AppID ${r.appid}，跳过`, 'warn');
       }
     }
-  }
 
-  /* =================================================================
-     下载 GitHub Actions artifact
+    if (depotsToDownload.length === 0) {
+      this.log('❌ 没有匹配的 depot（manifest 文件不属于此 app）', 'error');
+      this._updateProgress('github', 100);
+      return;
+    }
+
+    this.log(`📦 ${depotsToDownload.length}/${depotIds.length} 个 depot 有 manifest ID`, 'info');
+    const depotsJson = JSON.stringify(depotsToDownload);
+
+    // =====================================================
+    // 无 Token 模式：显示手动触发指引
+    // =====================================================
+    if (!this.github.token) {
+      this._updateProgress('github', 100);
+      this.log('🆓 无需 Token → 手动触发 GitHub Actions:', 'warn');
+      this.log('──────────────────────────────────', 'info');
+      this.log('1️⃣ 打开:', 'info');
+      this.log('   https://github.com/CheckCheats/DDGameBox/actions/workflows/steam-downloader.yml', 'info');
+      this.log('2️⃣ 点击 "Run workflow" 按钮', 'info');
+      this.log('3️⃣ 填入以下参数:', 'info');
+      this.log(`   appid: ${r.appid || ''}`, 'info');
+      this.log(`   depots_json: ${depotsJson}`, 'info');
+      this.log('4️⃣ 点击 "Run workflow" → 等几分钟', 'info');
+      this.log('5️⃣ 下载 Artifact', 'info');
+      this.log('──────────────────────────────────', 'info');
+      this.log('💡 也可弹出帮助窗口点击"手动触发"', 'info');
+      
+      // Copy to clipboard helper
+      const params = `appid=${String(r.appid || '')}&depots_json=${encodeURIComponent(depotsJson)}`;
+      try {
+        await navigator.clipboard.writeText(params);
+        this.log('✅ 参数已复制到剪贴板！', 'success');
+      } catch(e) {
+        // fallback
+      }
+      return;
+    }
+
+        // =====================================================
+        // 有 Token 模式：自动触发
+        // =====================================================
+        this._updateProgress('github', 20);
+        this.log('🚀 触发 GitHub Actions...', 'info');
+
+        try {
+          const result = await this.github.triggerWorkflow('steam-downloader.yml', {
+            appid: String(r.appid || ''),
+            depots_json: depotsJson
+          });
+
+          if (!result) {
+            this.log('⚠️ 工作流触发未返回 run ID。Token 可能有 actions:write 权限吗？', 'warn');
+            this.log('💡 Token 权限需要: Fine-grained → Actions: Write', 'info');
+            this.log('💡 或手动去 Actions 页面 Run workflow', 'info');
+            this._updateProgress('github', 100);
+            return;
+          }
+
+          this.triggeredWorkflow = { id: result.id, html_url: result.html_url };
+          this.log(`✅ 工作流 #${result.id} 已触发`, 'success');
+          this.log(`🔗 ${result.html_url}`, 'info');
+          this._updateProgress('github', 30);
+
+          this._addProgress('poll', '⏳ 下载中... (5-30分钟)', 30);
+          this.log('⏳ 等待 GitHub Actions 完成...', 'info');
+
+          const pollResult = await this.github.pollUntilDone(result.id, (msg) => {
+            this.log(`📡 ${msg}`, 'info');
+          });
+
+          if (pollResult.success) {
+            this._updateProgress('poll', 90);
+            this.log('🎉 Actions 完成!', 'success');
+
+            try {
+              await this._downloadGitHubArtifact(result.id, r.appid);
+              this._updateProgress('poll', 100);
+              this._updateProgress('github', 100);
+            } catch (e) {
+              this.log(`⚠️ artifact 下载失败: ${e.message}`, 'warn');
+              let url = result.html_url || `https://github.com/CheckCheats/DDGameBox/actions/runs/${result.id}`;
+              this.log('💡 去 Actions 手动下载: ' + url, 'info');
+              this._updateProgress('poll', 100);
+            }
+          } else {
+            throw new Error(pollResult.error || '工作流异常');
+          }
+        } catch (e) {
+          if (e.message.includes('权限') || e.message.includes('403')) {
+            this.log('❌ Token 权限不足 → 需要 actions:write 权限（不是 repo）', 'error');
+            this.log('💡 前往 github.com/settings/tokens/fine-grained 创建', 'info');
+          } else if (e.message.includes('超时')) {
+            this.log('❌ ' + e.message, 'error');
+          } else {
+            throw e;
+          }
+        }
+      }
+      /* =================================================================
+         下载 GitHub Actions artifact
      ================================================================= */
   async _downloadGitHubArtifact(runId, appid) {
     this.log('📦 获取 Actions artifacts...', 'info');

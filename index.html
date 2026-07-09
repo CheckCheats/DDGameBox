@@ -108,19 +108,23 @@ html,body{height:100%;font-family:system-ui,'Segoe UI','Microsoft YaHei',sans-se
 
 <div id="tokenHelpOverlay" class="modal-overlay" style="display:none">
   <div class="modal-box token-help">
-    <h3>🔐 GitHub Token</h3>
-    <p style="margin-bottom:12px;color:var(--label);font-size:14px">用于调用 GitHub API 触发后台 Steam 下载</p>
+    <h3>🔐 GitHub Token（可选）</h3>
+    <p style="margin-bottom:12px;color:var(--label);font-size:14px">用于自动触发 GitHub Actions 后台下载</p>
+    <p style="margin-bottom:8px;color:var(--accent);font-size:13px"><b>✅ 现在仅需 <code>actions:write</code> 一个权限，无需 <code>repo</code></b></p>
     <ol>
-      <li>打开 <a href="https://github.com/settings/tokens/new?description=DDGameBox&scopes=repo,workflow,gist" target="_blank" rel="noopener">github.com/settings/tokens/new</a></li>
-      <li>过期时间选 <b>No expiration</b></li>
-      <li>勾选: ☑ <b>repo</b> + ☑ <b>workflow</b> + ☑ <b>gist</b></li>
-      <li>点击 <b>Generate token</b></li>
-      <li>复制 <code>ghp_xxxx...</code> 粘贴到上方输入框</li>
-      <li>点击 💾 自动保存</li>
+      <li>打开 <a href="https://github.com/settings/tokens?type=beta" target="_blank" rel="noopener">Fine-grained tokens</a></li>
+      <li>点 <b>Generate new token</b></li>
+      <li>Repository access → <b>Only select repositories</b> → 选择 DDGameBox</li>
+      <li>Permissions → <b>Actions: Write</b>（只需这一个）</li>
+      <li>点 <b>Generate token</b>，复制粘贴到上方输入框</li>
     </ol>
+    <p style="margin:10px 0;font-size:13px;color:var(--label)">———————— 或者 ————————</p>
+    <p style="font-size:13px"><b>🆓 完全不需要 Token？</b><br>
+      → 手动去 <a href="https://github.com/CheckCheats/DDGameBox/actions/workflows/steam-downloader.yml" target="_blank" rel="noopener">Actions 页面</a> 点 <b>Run workflow</b>，填入参数即可。</p>
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="document.getElementById('tokenHelpOverlay').style.display='none'">关闭</button>
-      <button class="btn btn-primary" onclick="window.open('https://github.com/settings/tokens/new?description=DDGameBox&scopes=repo,workflow,gist','_blank')">创建 Token</button>
+      <button class="btn btn-primary" onclick="window.open('https://github.com/settings/tokens?type=beta','_blank')">创建 Token</button>
+      <button class="btn btn-secondary" onclick="window.open('https://github.com/CheckCheats/DDGameBox/actions/workflows/steam-downloader.yml','_blank')">手动触发</button>
     </div>
   </div>
 </div>
