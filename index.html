@@ -62,7 +62,7 @@ html,body{height:100%;font-family:system-ui,'Segoe UI','Microsoft YaHei',sans-se
     for(var j=0;j<6;j++)if((v.charCodeAt(j)^0x5A)!==K[j]){ok=false;break}
     if(ok){
       g.style.display='none';
-      a.style.display='flex';
+      a.style.display='block';
       // Cookie 记录1小时内免输入
       var d=new Date();d.setTime(d.getTime()+60*60*1000);
       document.cookie='ddunlock=1;expires='+d.toUTCString()+';path=/;SameSite=Lax';
