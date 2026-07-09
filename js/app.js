@@ -138,8 +138,14 @@ class DDGameBoxApp {
         localStorage.setItem('dd_gh_token', cfg.token);
         this.log('☁️ 已从 GitHub 云端恢复 Token', 'success');
         this._quickAPICheck();
+      } else {
+        this.log('☁️ 云端配置已同步', 'info');
       }
-    } catch { /* 无 Gist 或无网络, 静默 */ }
+    } catch (e) {
+      if (/Gist 404/.test(e.message)) {
+        // 已自动清除旧 Gist cookie, 下次保存会自动创建
+      }
+    }
   }
 
   async _saveToken() {

@@ -129,6 +129,7 @@ class GitHubBackend {
   /** 
    * 读取用户配置: 从 Gist 加载 token
    * 需要用户已保存 token (用 token 读自己的 gist)
+   * 404 → Gist 被删除/不存在 → 清除 cookie, 自动创建新 Gist
    */
   async loadUserConfig() {
     const gistId = this.getGistId();
@@ -141,7 +142,15 @@ class GitHubBackend {
         this._cache.set('user_config', cfg);
         return cfg;
       }
-    } catch {}
+    } catch (e) {
+      // Gist 不存在/被删 → 清 cookie, 下次 saveUserConfig 会自动创建
+      if (/Gist 404/.test(e.message)) {
+        document.cookie = `${this.GIST_COOKIE}=;max-age=0;path=/`;
+        this._cache.delete('user_config');
+        return null; // 不抛错, 让调用方继续
+      }
+      throw e;
+    }
     return null;
   }
 
@@ -156,17 +165,17 @@ class GitHubBackend {
     const content = JSON.stringify({ ...data, updated: Date.now() }, null, 2);
 
     if (gistId) {
-      // 更新已有 Gist
-      try {
-        await this._gistRequest(gistId, 'PATCH', {
-          files: { 'ddbox-config.json': { content } }
-        });
+      // 更新已有 Gist — 404 不抛异常, 静默降级到创建
+      const updated = await this._gistRequest(gistId, 'PATCH', {
+        files: { 'ddbox-config.json': { content } }
+      }).catch(() => null);
+      if (updated) {
         this._cache.set('user_config', data);
         return { success: true, gistId };
-      } catch {
-        // Gist 可能被删了, 重新创建
-        gistId = null;
       }
+      // Gist 不存在或被删, 清 cookie 重新创建
+      this._clearGistId();
+      gistId = null;
     }
 
     // 创建新 Gist
