@@ -349,6 +349,220 @@ class GitHubBackend {
 
     return { success: false, error: '等待超时 (30分钟)' };
   }
+
+  /* =================================================================
+     Release 上传方案（无大小限制）
+     ================================================================= */
+
+  /**
+   * 打包 manifests + keys → 创建 Release → 上传 ZIP asset → 触发 workflow
+   * 返回 { runId, runUrl }
+   */
+  async submitViaRelease(appid, depotsToDownload, manifestFiles) {
+    const tag = `dd-${appid}-${Date.now()}`;
+    const releaseName = `DD-${appid}`;
+
+    this.log?.(`📦 创建 Release: ${tag}...`);
+
+    // 1. 创建 Release
+    const release = await this._apiRequest('/releases', 'POST', {
+      tag_name: tag,
+      name: releaseName,
+      body: `DD Game Box - AppID ${appid}`,
+      target_commitish: 'master',
+      draft: false,
+      prerelease: false
+    });
+
+    if (!release || !release.id || !release.upload_url) {
+      throw new Error('Release 创建失败');
+    }
+
+    const uploadUrl = release.upload_url.replace('{?name,label}', '?name=data.zip');
+
+    // 2. 打包 manifests + depots JSON 为 ZIP
+    // 使用 JSZip 或手动构建简单 ZIP
+    this.log?.(`📦 上传 manifests 到 Release...`);
+
+    // 构建一个简单 ZIP 包含 depots.json + manifests/
+    const zipParts = [];
+
+    // 2a. depots.json
+    const depotsJson = JSON.stringify(depotsToDownload);
+    const enc = new TextEncoder();
+    const depotsBytes = enc.encode(depotsJson);
+
+    // 构建 ZIP 条目
+    const entries = [];
+    // depots.json entry (local file header)
+    entries.push(this._makeZipEntry('depots.json', depotsBytes));
+
+    // manifest files
+    if (manifestFiles && manifestFiles.length > 0) {
+      for (const mf of manifestFiles) {
+        try {
+          const name = mf.name || '';
+          const buf = await mf.data.arrayBuffer();
+          const bytes = new Uint8Array(buf);
+          entries.push(this._makeZipEntry(`manifests/${name}`, bytes));
+          this.log?.(`  + manifests/${name} (${(bytes.length/1024).toFixed(1)}KB)`);
+        } catch (e) {
+          this.log?.(`  ⚠️ ${mf.name} 打包失败: ${e.message}`);
+        }
+      }
+    }
+
+    const zipBytes = this._buildZip(entries);
+
+    // 3. 上传 asset
+    this.log?.(`⬆️ 上传 Release asset (${(zipBytes.length/1024).toFixed(1)}KB)...`);
+    const assetResp = await fetch(uploadUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${this.token}`,
+        'Content-Type': 'application/zip',
+        'Content-Length': zipBytes.length.toString()
+      },
+      body: new Blob([zipBytes], { type: 'application/zip' })
+    });
+
+    if (!assetResp.ok) {
+      const errText = await assetResp.text().catch(() => '');
+      throw new Error(`上传 asset 失败: ${assetResp.status} ${errText}`);
+    }
+
+    this.log?.('✅ Release asset 上传成功');
+
+    // 4. 触发 workflow，传递 release_tag
+    const run = await this.triggerWorkflow('steam-downloader.yml', {
+      appid: String(appid),
+      depots_json: JSON.stringify(depotsToDownload),
+      release_tag: tag
+    });
+
+    return {
+      runId: run?.id || null,
+      runUrl: run?.html_url || null,
+      releaseTag: tag
+    };
+  }
+
+  /** 构建 ZIP 本地文件头 */
+  _makeZipEntry(name, bytes) {
+    // CRC32 简化：只做必要字段，浏览器端 JSZip 太重
+    let crc = 0;
+    for (let i = 0; i < bytes.length; i++) {
+      crc = (crc >>> 8) ^ CRC32_TABLE[(crc ^ bytes[i]) & 0xFF];
+    }
+
+    const nameBytes = new TextEncoder().encode(name);
+    const extraField = new Uint8Array(0);
+
+    // Local file header
+    const localHeader = new Uint8Array(30 + nameBytes.length);
+    const dv = new DataView(localHeader.buffer);
+    dv.setUint32(0, 0x04034b50, true); // signature
+    dv.setUint16(4, 20, true); // version needed
+    dv.setUint16(6, 0, true); // flags
+    dv.setUint16(8, 0, true); // compression (stored)
+    dv.setUint16(10, 0, true); // mod time
+    dv.setUint16(12, 0, true); // mod date
+    dv.setUint32(14, crc >>> 0, true); // crc32
+    dv.setUint32(18, bytes.length, true); // compressed size
+    dv.setUint32(22, bytes.length, true); // uncompressed size
+    dv.setUint16(26, nameBytes.length, true); // filename length
+    dv.setUint16(28, 0, true); // extra field length
+    localHeader.set(nameBytes, 30);
+
+    return {
+      name: name,
+      crc: crc,
+      compSize: bytes.length,
+      uncompSize: bytes.length,
+      offset: 0, // will be set during build
+      localHeader: localHeader,
+      data: bytes,
+      nameBytes: nameBytes
+    };
+  }
+
+  /** 构建完整 ZIP */
+  _buildZip(entries) {
+    const chunks = [];
+    let offset = 0;
+    const centralDirEntries = [];
+
+    for (const entry of entries) {
+      // Update offset
+      entry.offset = offset;
+
+      // Local file header + data
+      chunks.push(entry.localHeader);
+      chunks.push(entry.data);
+      offset += entry.localHeader.length + entry.data.length;
+
+      // Central directory entry
+      const cdHeader = new Uint8Array(46 + entry.nameBytes.length);
+      const dv = new DataView(cdHeader.buffer);
+      dv.setUint32(0, 0x02014b50, true); // signature
+      dv.setUint16(4, 20, true); // version made by
+      dv.setUint16(6, 20, true); // version needed
+      dv.setUint16(8, 0, true); // flags
+      dv.setUint16(10, 0, true); // compression
+      dv.setUint16(12, 0, true); // mod time
+      dv.setUint16(14, 0, true); // mod date
+      dv.setUint32(16, entry.crc >>> 0, true);
+      dv.setUint32(20, entry.compSize, true);
+      dv.setUint32(24, entry.uncompSize, true);
+      dv.setUint16(28, entry.nameBytes.length, true);
+      dv.setUint16(30, 0, true); // extra field
+      dv.setUint16(32, 0, true); // comment
+      dv.setUint16(34, 0, true); // disk
+      dv.setUint16(36, 0, true); // internal attrs
+      dv.setUint32(38, 0, true); // external attrs
+      dv.setUint32(42, entry.offset, true); // relative offset
+      cdHeader.set(entry.nameBytes, 46);
+      centralDirEntries.push(cdHeader);
+    }
+
+    // End of central directory
+    const cdStart = offset;
+    for (const cd of centralDirEntries) {
+      chunks.push(cd);
+      offset += cd.length;
+    }
+
+    const eocd = new Uint8Array(22);
+    const ev = new DataView(eocd.buffer);
+    ev.setUint32(0, 0x06054b50, true); // signature
+    ev.setUint16(4, 0, true); // disk
+    ev.setUint16(6, 0, true); // cd disk
+    ev.setUint16(8, centralDirEntries.length, true); // entries on disk
+    ev.setUint16(10, centralDirEntries.length, true); // total entries
+    ev.setUint32(12, offset - cdStart, true); // cd size
+    ev.setUint32(16, cdStart, true); // cd offset
+    ev.setUint16(20, 0, true); // comment length
+    chunks.push(eocd);
+
+    const total = chunks.reduce((s, c) => s + c.length, 0);
+    const result = new Uint8Array(total);
+    let pos = 0;
+    for (const c of chunks) {
+      result.set(c, pos);
+      pos += c.length;
+    }
+    return result;
+  }
+}
+
+// CRC32 lookup table
+const CRC32_TABLE = new Uint32Array(256);
+for (let i = 0; i < 256; i++) {
+  let crc = i;
+  for (let j = 0; j < 8; j++) {
+    crc = (crc & 1) ? (0xEDB88320 ^ (crc >>> 1)) : (crc >>> 1);
+  }
+  CRC32_TABLE[i] = crc;
 }
 
 if (typeof module !== 'undefined' && module.exports) {

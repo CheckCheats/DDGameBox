@@ -108,19 +108,27 @@ html,body{height:100%;font-family:system-ui,'Segoe UI','Microsoft YaHei',sans-se
 
 <div id="tokenHelpOverlay" class="modal-overlay" style="display:none">
   <div class="modal-box token-help">
-    <h3>🔐 GitHub Token（可选）</h3>
-    <p style="margin-bottom:12px;color:var(--label);font-size:14px">用于自动触发 GitHub Actions 后台下载</p>
-    <p style="margin-bottom:8px;color:var(--accent);font-size:13px"><b>✅ 现在仅需 <code>actions:write</code> 一个权限，无需 <code>repo</code></b></p>
+    <h3>🔐 设置 GitHub Token</h3>
+    <p style="margin-bottom:12px;color:var(--label);font-size:14px">配置后自动触发 GitHub Actions 下载，无大小限制</p>
+    <div style="background:#222;border-radius:8px;padding:14px;margin-bottom:12px;font-size:13px">
+      <div style="color:#f87171;font-weight:700;margin-bottom:6px">⚠️ 无 Token（≤2GB 限制）</div>
+      <div style="color:var(--label)">参数模式：先在日志查看解析的参数，手动去 Actions 页面 Run workflow</div>
+    </div>
+    <div style="background:linear-gradient(135deg,#1a2a1e,#0d1a10);border-radius:8px;padding:14px;margin-bottom:16px;font-size:13px">
+      <div style="color:#6b8e23;font-weight:700;margin-bottom:6px">✅ 有 Token（无大小限制）</div>
+      <div style="color:var(--label)">Release 方案：自动上传 manifests + 触发工作流 + 下载 artifact，一键完成</div>
+    </div>
     <ol>
-      <li>打开 <a href="https://github.com/settings/tokens?type=beta" target="_blank" rel="noopener">Fine-grained tokens</a></li>
-      <li>点 <b>Generate new token</b></li>
+      <li>打开 <a href="https://github.com/settings/tokens?type=beta" target="_blank" rel="noopener">Fine-grained tokens</a> → <b>Generate new token</b></li>
       <li>Repository access → <b>Only select repositories</b> → 选择 DDGameBox</li>
-      <li>Permissions → <b>Actions: Write</b>（只需这一个）</li>
-      <li>点 <b>Generate token</b>，复制粘贴到上方输入框</li>
+      <li>Permissions:
+        <ul style="margin-left:20px;margin-top:4px">
+          <li><b>Contents: Write</b>（上传 manifests 到 Release）</li>
+          <li><b>Actions: Write</b>（触发 workflow）</li>
+        </ul>
+      </li>
+      <li>点 <b>Generate token</b>，复制粘贴到上方输入框，自动保存</li>
     </ol>
-    <p style="margin:10px 0;font-size:13px;color:var(--label)">———————— 或者 ————————</p>
-    <p style="font-size:13px"><b>🆓 完全不需要 Token？</b><br>
-      → 手动去 <a href="https://github.com/CheckCheats/DDGameBox/actions/workflows/steam-downloader.yml" target="_blank" rel="noopener">Actions 页面</a> 点 <b>Run workflow</b>，填入参数即可。</p>
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="document.getElementById('tokenHelpOverlay').style.display='none'">关闭</button>
       <button class="btn btn-primary" onclick="window.open('https://github.com/settings/tokens?type=beta','_blank')">创建 Token</button>

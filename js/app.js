@@ -88,9 +88,9 @@ class DDGameBoxApp {
     // Token 保存
     this.dom.ghSaveTokenBtn.addEventListener('click', () => this._saveToken());
     this.dom.ghQuickTokenBtn.addEventListener('click', () => {
-      window.open('https://github.com/settings/tokens/new?description=DDGameBox&scopes=repo,workflow,gist', '_blank');
-      this.dom.tokenHelpOverlay.style.display = 'flex';
-    });
+          window.open('https://github.com/settings/tokens?type=beta', '_blank');
+          this.dom.tokenHelpOverlay.style.display = 'flex';
+        });
     this.dom.ghTokenHelpBtn.addEventListener('click', () => {
       this.dom.tokenHelpOverlay.style.display = 'flex';
     });
@@ -655,81 +655,68 @@ class DDGameBoxApp {
     }
 
     this.log(`📦 ${depotsToDownload.length}/${depotIds.length} 个 depot 有 manifest ID`, 'info');
-    const depotsJson = JSON.stringify(depotsToDownload);
+        const depotsJson = JSON.stringify(depotsToDownload);
+        const paramSizeKB = new Blob([depotsJson]).size / 1024;
 
-    // =====================================================
-    // 无 Token 模式：显示手动触发指引
-    // =====================================================
-    if (!this.github.token) {
-      this._updateProgress('github', 100);
-      this.log('🆓 无需 Token → 手动触发 GitHub Actions:', 'warn');
-      this.log('──────────────────────────────────', 'info');
-      this.log('1️⃣ 打开:', 'info');
-      this.log('   https://github.com/CheckCheats/DDGameBox/actions/workflows/steam-downloader.yml', 'info');
-      this.log('2️⃣ 点击 "Run workflow" 按钮', 'info');
-      this.log('3️⃣ 填入以下参数:', 'info');
-      this.log(`   appid: ${r.appid || ''}`, 'info');
-      this.log(`   depots_json: ${depotsJson}`, 'info');
-      this.log('4️⃣ 点击 "Run workflow" → 等几分钟', 'info');
-      this.log('5️⃣ 下载 Artifact', 'info');
-      this.log('──────────────────────────────────', 'info');
-      this.log('💡 也可弹出帮助窗口点击"手动触发"', 'info');
-      
-      // Copy to clipboard helper
-      const params = `appid=${String(r.appid || '')}&depots_json=${encodeURIComponent(depotsJson)}`;
-      try {
-        await navigator.clipboard.writeText(params);
-        this.log('✅ 参数已复制到剪贴板！', 'success');
-      } catch(e) {
-        // fallback
-      }
-      return;
-    }
+        // ────────────────────────────────────────────────────
+        // 无 Token 模式：只能传参数 (有 2GB 限制)
+        // ────────────────────────────────────────────────────
+        if (!this.github.token) {
+          this._updateProgress('github', 100);
+          this.log('📋 ── 无 Token 模式 ─────────────────────────', 'info');
+          this.log('🆓 手动触发 GitHub Actions 即可免费使用', 'info');
+          this.log('⚠️  无 Token → 使用参数模式，游戏 ≤2GB 可下载', 'info');
+          this.log('⚠️  如需 ≥2GB 游戏，请设置 Token 使用 Release 方案', 'info');
+          if (paramSizeKB > 8) {
+            this.log(`⚠️  参数体积 ${paramSizeKB.toFixed(1)}KB 接近限制，建议用 Token`, 'warn');
+          }
+          this.log('────────────────────────────────────────', 'info');
+          this.log('📍 打开:', 'info');
+          this.log('   https://github.com/CheckCheats/DDGameBox/actions/workflows/steam-downloader.yml', 'info');
+          this.log('📍 点 "Run workflow" → 填入:', 'info');
+          this.log(`   appid: ${r.appid || ''}`, 'info');
+          this.log(`   depots_json: ${depotsJson}`, 'info');
+          this.log('📍 Run → 等几分钟 → 下载 Artifact', 'info');
+          this.log('────────────────────────────────────────', 'info');
+          this.log('💡 设 Token 解除大小限制 + 一键自动触发', 'info');
+          return;
+        }
 
-        // =====================================================
-        // 有 Token 模式：自动触发
-        // =====================================================
-        this._updateProgress('github', 20);
-        this.log('🚀 触发 GitHub Actions...', 'info');
+        // ────────────────────────────────────────────────────
+        // 有 Token 模式：Release 方案（无大小限制）
+        // ────────────────────────────────────────────────────
+        this._updateProgress('github', 15);
+        this.log('📦 Token 模式: 上传 manifests 到 Release...', 'info');
 
         try {
-          const result = await this.github.triggerWorkflow('steam-downloader.yml', {
-            appid: String(r.appid || ''),
-            depots_json: depotsJson
-          });
-
-          if (!result) {
-            this.log('⚠️ 工作流触发未返回 run ID。Token 可能有 actions:write 权限吗？', 'warn');
-            this.log('💡 Token 权限需要: Fine-grained → Actions: Write', 'info');
-            this.log('💡 或手动去 Actions 页面 Run workflow', 'info');
-            this._updateProgress('github', 100);
-            return;
+          const release = await this.github.submitViaRelease(r.appid, depotsToDownload, this._zipManifestFiles);
+          if (!release || !release.runId) {
+            this.log('⚠️ Release 上传失败，降级到参数模式', 'warn');
+            return this._fallbackViaParams(r.appid, depotsJson);
           }
 
-          this.triggeredWorkflow = { id: result.id, html_url: result.html_url };
-          this.log(`✅ 工作流 #${result.id} 已触发`, 'success');
-          this.log(`🔗 ${result.html_url}`, 'info');
+          this.triggeredWorkflow = { id: release.runId, html_url: release.runUrl };
+          this.log(`✅ Release 方案 #${release.runId} 已触发`, 'success');
+          this.log(`🔗 ${release.runUrl}`, 'info');
           this._updateProgress('github', 30);
 
-          this._addProgress('poll', '⏳ 下载中... (5-30分钟)', 30);
+          this._addProgress('poll', '⏳ 下载中... (Release 模式, 无大小限制)', 30);
           this.log('⏳ 等待 GitHub Actions 完成...', 'info');
 
-          const pollResult = await this.github.pollUntilDone(result.id, (msg) => {
+          const pollResult = await this.github.pollUntilDone(release.runId, (msg) => {
             this.log(`📡 ${msg}`, 'info');
           });
 
           if (pollResult.success) {
             this._updateProgress('poll', 90);
             this.log('🎉 Actions 完成!', 'success');
-
             try {
-              await this._downloadGitHubArtifact(result.id, r.appid);
+              await this._downloadGitHubArtifact(release.runId, r.appid);
               this._updateProgress('poll', 100);
               this._updateProgress('github', 100);
             } catch (e) {
               this.log(`⚠️ artifact 下载失败: ${e.message}`, 'warn');
-              let url = result.html_url || `https://github.com/CheckCheats/DDGameBox/actions/runs/${result.id}`;
-              this.log('💡 去 Actions 手动下载: ' + url, 'info');
+              this.log('💡 去 Actions 手动下载: ' + (release.runUrl || ''), 'info');
               this._updateProgress('poll', 100);
             }
           } else {
@@ -737,8 +724,9 @@ class DDGameBoxApp {
           }
         } catch (e) {
           if (e.message.includes('权限') || e.message.includes('403')) {
-            this.log('❌ Token 权限不足 → 需要 actions:write 权限（不是 repo）', 'error');
-            this.log('💡 前往 github.com/settings/tokens/fine-grained 创建', 'info');
+            this.log('❌ Token 权限不足 → 需要 contents:write + actions:write', 'error');
+            this.log('💡 降级到参数模式（≤2GB）', 'warn');
+            return this._fallbackViaParams(r.appid, depotsJson);
           } else if (e.message.includes('超时')) {
             this.log('❌ ' + e.message, 'error');
           } else {
@@ -746,6 +734,28 @@ class DDGameBoxApp {
           }
         }
       }
+
+      /* 降级：直接传参数（≤2GB） */
+      async _fallbackViaParams(appid, depotsJson) {
+        this.log('🔄 降级到参数模式...', 'warn');
+        const result = await this.github.triggerWorkflow('steam-downloader.yml', {
+          appid: String(appid || ''),
+          depots_json: depotsJson
+        });
+        if (!result) {
+          this.log('⚠️ 无法触发工作流', 'warn');
+          return;
+        }
+        this.triggeredWorkflow = { id: result.id, html_url: result.html_url };
+        this.log(`✅ 参数模式 #${result.id}`, 'success');
+        const pollResult = await this.github.pollUntilDone(result.id, (msg) => this.log(`📡 ${msg}`, 'info'));
+        if (pollResult.success) {
+          await this._downloadGitHubArtifact(result.id, appid).catch(e => {
+            this.log(`⚠️ 下载失败: ${e.message}`, 'warn');
+          });
+        }
+      }
+
       /* =================================================================
          下载 GitHub Actions artifact
      ================================================================= */
