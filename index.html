@@ -8,15 +8,15 @@
 </head>
 <body>
 <div id="app">
-  <!-- 顶部标题栏 -->
   <header id="header">
     <div class="title-bar">
       <div class="title-text">🎮 DD Game Box Web v2.0</div>
-      <div class="title-sub">Steam 游戏下载助手 | GitHub 后端驱动</div>
+      <div class="title-sub">Steam 游戏下载助手 | 拖入密钥即可下载</div>
     </div>
     <div class="header-controls">
-      <input type="password" id="ghTokenInput" placeholder="GitHub Token (可选, 提高API限额)" class="token-input">
-      <button id="ghSaveTokenBtn" class="btn btn-small">💾</button>
+      <input type="password" id="ghTokenInput" placeholder="GitHub Token" class="token-input">
+      <button id="ghSaveTokenBtn" class="btn btn-small" title="保存 Token">💾</button>
+      <button id="ghTokenHelpBtn" class="btn btn-small" title="如何获取 Token">❓</button>
       <div class="backend-selector">
         <label><input type="radio" name="backend" value="github" checked> GitHub</label>
         <label><input type="radio" name="backend" value="cors"> CORS</label>
@@ -25,17 +25,14 @@
   </header>
 
   <main id="main-container">
-    <!-- 左列: 上传和解析 -->
     <section id="left-panel" class="panel">
-      <!-- 文件拖放区 -->
       <div class="drop-zone" id="dropZone">
-        <div class="drop-icon">📁</div>
-        <div class="drop-text">拖入 2253100.zip 或 Lua 脚本</div>
-        <div class="drop-hint">支持: .zip, .lua, .txt, .manifest, .json</div>
+        <div class="drop-icon">🔑</div>
+        <div class="drop-text">拖入密钥文件</div>
+        <div class="drop-hint">支持任意格式: 密钥 ZIP / Lua 脚本 / manifest / JSON</div>
         <input type="file" id="fileInput" accept=".zip,.lua,.txt,.manifest,.json" hidden multiple>
       </div>
 
-      <!-- 解析结果 -->
       <div id="parseResult" class="result-section" hidden>
         <div class="section-title">📋 游戏信息</div>
         <div id="gameInfo" class="info-grid"></div>
@@ -43,24 +40,19 @@
         <div id="depotList" class="depot-list"></div>
         <div class="section-title">🔑 密钥信息</div>
         <div id="keyInfo" class="key-info"></div>
-        <!-- 操作按钮 -->
         <div id="actions" class="action-bar">
-          <button id="fetchBtn" class="btn btn-primary" disabled>🚀 获取 Manifest</button>
+          <button id="fetchBtn" class="btn btn-primary" disabled>🚀 开始下载</button>
           <button id="downloadZipBtn" class="btn btn-success" disabled>📦 打包下载</button>
           <button id="clearBtn" class="btn btn-secondary">🗑️ 清空</button>
         </div>
       </div>
     </section>
 
-    <!-- 右列: 进度和日志 -->
     <section id="right-panel" class="panel">
-      <!-- 进度区 -->
       <div id="progressSection" class="progress-section" hidden>
         <div class="section-title">📊 下载进度</div>
         <div id="progressContainer"></div>
       </div>
-
-      <!-- 日志区 -->
       <div class="log-section">
         <div class="section-title">📜 操作日志</div>
         <div class="log-tabs">
@@ -74,17 +66,37 @@
     </section>
   </main>
 
-  <!-- 底部状态栏 -->
   <footer id="footer">
     <div class="status-bar">
-      <span id="statusText">就绪 - 拖入 2253100.zip 开始</span>
+      <span id="statusText">就绪 - 拖入密钥开始下载</span>
       <span id="fileCount">-</span>
-      <span id="apiStatus">🌐 API 状态: 待检测</span>
+      <span id="apiStatus">🌐 状态: 待检测</span>
     </div>
   </footer>
 </div>
 
-<!-- 脚本 -->
+<!-- Token 帮助模态框 -->
+<div id="tokenHelpOverlay" class="modal-overlay" style="display:none">
+  <div class="modal-box token-help">
+    <h3>🔐 如何获取 GitHub Token</h3>
+    <ol>
+      <li>打开 <a href="https://github.com/settings/tokens" target="_blank" rel="noopener">github.com/settings/tokens</a></li>
+      <li>点击 <b>Generate new token</b> → <b>Generate new token (classic)</b></li>
+      <li>Note 填任意名称，Expiration 选 <b>No expiration</b></li>
+      <li>勾选权限: ☑ <b>repo</b> (全部) + ☑ <b>workflow</b></li>
+      <li>点击底部 <b>Generate token</b></li>
+      <li>复制生成的 <code>ghp_xxxx...</code> 粘贴到上方输入框</li>
+    </ol>
+    <p style="margin-top:12px;color:var(--title-bg);font-size:13px">
+      ⚠️ Token 仅保存在浏览器本地，不会上传到任何服务器。用于调用 GitHub API 触发后台下载。
+    </p>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="document.getElementById('tokenHelpOverlay').style.display='none'">关闭</button>
+      <button class="btn btn-primary" onclick="window.open('https://github.com/settings/tokens','_blank');document.getElementById('tokenHelpOverlay').style.display='none'">去创建 Token</button>
+    </div>
+  </div>
+</div>
+
 <script src="js/lua-parser.js"></script>
 <script src="js/api-client.js"></script>
 <script src="js/vdf-generator.js"></script>

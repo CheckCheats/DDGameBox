@@ -76,7 +76,7 @@ class ApiClient {
       }
     }
     clearTimeout(timeoutId);
-    throw new Error(`所有 CORS 代理均无法访问: ${url}`);
+    throw new Error(`CORS 代理全部不可用 → ${url}\n请切换到右上角 GitHub 模式并设置 Token`);
   }
 
   /**

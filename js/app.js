@@ -1,11 +1,10 @@
 /* ================================================================
-   DD Game Box Web v2.0 - GitHub Backend Integration
-   Uses GitHub API + Actions as serverless backend
+   DD Game Box Web v2.1 - GitHub Backend Integration
+   拖入密钥 → GitHub Actions 后台下载 Steam 游戏
    ================================================================ */
 
 class DDGameBoxApp {
   constructor() {
-    // 状态
     this.parseResult = null;
     this.manifestData = [];
     this.fetchedManifests = {};
@@ -13,12 +12,9 @@ class DDGameBoxApp {
     this.isFetching = false;
     this.triggeredWorkflow = null;
 
-    // 组件
     this.api = new ApiClient();
     this.github = new GitHubBackend({ repo: 'CheckCheats/DDGameBox' });
     this.zip = new ZipPackager();
-
-    // DOM
     this.dom = {};
 
     this._initDOM();
@@ -46,7 +42,9 @@ class DDGameBoxApp {
       logTabs: document.querySelectorAll('.log-tab'),
       ghTokenInput: document.getElementById('ghTokenInput'),
       ghSaveTokenBtn: document.getElementById('ghSaveTokenBtn'),
+      ghTokenHelpBtn: document.getElementById('ghTokenHelpBtn'),
       ghBackendRadio: document.querySelectorAll('input[name="backend"]'),
+      tokenHelpOverlay: document.getElementById('tokenHelpOverlay'),
     };
   }
 
@@ -54,30 +52,22 @@ class DDGameBoxApp {
     const dz = this.dom.dropZone;
     const fi = this.dom.fileInput;
 
-    // 拖放事件
     dz.addEventListener('click', () => fi.click());
     dz.addEventListener('dragover', (e) => { e.preventDefault(); dz.classList.add('drag-over'); });
     dz.addEventListener('dragleave', () => dz.classList.remove('drag-over'));
     dz.addEventListener('drop', (e) => {
       e.preventDefault();
       dz.classList.remove('drag-over');
-      const files = e.dataTransfer.files;
-      if (files.length > 0) this._handleFiles(files);
+      if (e.dataTransfer.files.length > 0) this._handleFiles(e.dataTransfer.files);
     });
-
     fi.addEventListener('change', (e) => {
-      if (e.target.files.length > 0) {
-        this._handleFiles(e.target.files);
-        fi.value = '';
-      }
+      if (e.target.files.length > 0) { this._handleFiles(e.target.files); fi.value = ''; }
     });
 
-    // 按钮
     this.dom.fetchBtn.addEventListener('click', () => this._startFetch());
     this.dom.downloadZipBtn.addEventListener('click', () => this._downloadPackage());
     this.dom.clearBtn.addEventListener('click', () => this._clear());
 
-    // 日志过滤
     this.dom.logTabs.forEach(tab => {
       tab.addEventListener('click', () => {
         this.dom.logTabs.forEach(t => t.classList.remove('active'));
@@ -86,22 +76,34 @@ class DDGameBoxApp {
       });
     });
 
-    // GitHub Token
+    // Token save
     this.dom.ghSaveTokenBtn.addEventListener('click', () => {
       const token = this.dom.ghTokenInput.value.trim();
       if (token) {
         localStorage.setItem('dd_gh_token', token);
         this.github.token = token;
-        this.log('✅ GitHub Token 已保存 (本地存储)', 'success');
-        this._checkGitHubStatus();
+        this.log('✅ Token 已保存 (仅存本地浏览器)', 'success');
+        this._checkStatus();
       }
     });
-    
-    // 后端切换
+
+    // Token help
+    this.dom.ghTokenHelpBtn.addEventListener('click', () => {
+      this.dom.tokenHelpOverlay.style.display = 'flex';
+    });
+
+    // Close help on overlay click
+    this.dom.tokenHelpOverlay.addEventListener('click', (e) => {
+      if (e.target === this.dom.tokenHelpOverlay) {
+        this.dom.tokenHelpOverlay.style.display = 'none';
+      }
+    });
+
+    // Backend switch
     this.dom.ghBackendRadio.forEach(radio => {
       radio.addEventListener('change', () => {
         const mode = document.querySelector('input[name="backend"]:checked').value;
-        this.log(`🔄 后端切换: ${mode === 'github' ? 'GitHub API' : 'CORS 代理'}`, 'info');
+        this.log(`🔄 后端: ${mode === 'github' ? 'GitHub API' : 'CORS 代理'}`, 'info');
         this._checkStatus();
       });
     });
@@ -114,23 +116,17 @@ class DDGameBoxApp {
     }
   }
 
-  /**
-   * Handle uploaded files (ZIP, Lua, manifest, JSON)
-   */
   async _handleFiles(files) {
     this._clear();
     this.log(`📁 处理 ${files.length} 个文件...`, 'info');
-
     let allContent = '';
     const manifestFiles = [];
 
     for (const file of files) {
       try {
-        // === ZIP files (DDGameBox format: 2253100.zip) ===
         if (file.name.endsWith('.zip')) {
-          this.log(`🗜️ 解析 ZIP: ${file.name} (${(file.size/1024/1024).toFixed(1)}MB)`, 'info');
+          this.log(`🗜️ 解析密钥 ZIP: ${file.name} (${(file.size/1024/1024).toFixed(1)}MB)`, 'info');
           const zipResult = await ZipHandler.parseGameZip(file);
-          
           if (zipResult) {
             this._applyZipResult(zipResult);
             this.log(`✅ ZIP 解析: AppID=${zipResult.appid}, Depots=${zipResult.depots.length}, Manifests=${zipResult.manifests.length}`, 'success');
@@ -139,30 +135,26 @@ class DDGameBoxApp {
         }
 
         const content = await file.text();
-        
-        // Manifest files
         if (file.name.endsWith('.manifest')) {
           manifestFiles.push({ name: file.name, content });
           this.log(`📄 加载 manifest: ${file.name}`, 'info');
           continue;
         }
 
-        // Lua/SteamCMD scripts
         if (LuaParser.isValid(content) || file.name.endsWith('.lua') || file.name.endsWith('.txt')) {
           allContent += '\n' + content;
-          this.log(`📄 加载脚本: ${file.name} (${(content.length/1024).toFixed(1)}KB)`, 'info');
+          this.log(`📄 加载密钥脚本: ${file.name} (${(content.length/1024).toFixed(1)}KB)`, 'info');
         } else if (this._looksLikeManifestJSON(content)) {
           manifestFiles.push({ name: file.name, content });
-          this.log(`📄 加载 JSON manifest: ${file.name}`, 'info');
+          this.log(`📄 加载 JSON: ${file.name}`, 'info');
         } else {
-          this.log(`⚠️ 跳过未知格式: ${file.name}`, 'warn');
+          this.log(`⚠️ 跳过: ${file.name}`, 'warn');
         }
       } catch (e) {
         this.log(`❌ 读取失败: ${file.name} - ${e.message}`, 'error');
       }
     }
 
-    // Parse Lua content
     if (allContent.trim()) {
       this.parseResult = LuaParser.parse(allContent);
       this.log(`✅ 解析完成: AppID=${this.parseResult.appid || '未知'}, Depots=${this.parseResult.depots.length}`, 'success');
@@ -180,15 +172,12 @@ class DDGameBoxApp {
       this._renderParseResult();
       this._processManifestFiles(manifestFiles);
     } else if (!this.parseResult) {
-      this.log('⚠️ 未找到可识别的游戏内容', 'warn');
+      this.log('⚠️ 未找到可识别内容', 'warn');
     }
 
     this._updateStatus();
   }
 
-  /**
-   * Apply ZIP parse result
-   */
   _applyZipResult(zipResult) {
     if (zipResult.appid && !this.parseResult) {
       this.parseResult = {
@@ -205,18 +194,12 @@ class DDGameBoxApp {
         }
       }
     }
-    
-    // Merge keys into depots
     if (zipResult.keys) {
       for (const [did, key] of Object.entries(zipResult.keys)) {
         const depot = this.parseResult.depots.find(d => d.id === parseInt(did));
-        if (depot) {
-          depot.sha = key;
-          depot.hasKey = true;
-        }
+        if (depot) { depot.sha = key; depot.hasKey = true; }
       }
     }
-    
     this._renderParseResult();
     if (this.parseResult.appid) this._fetchGameName(this.parseResult.appid);
   }
@@ -229,7 +212,7 @@ class DDGameBoxApp {
   }
 
   _processManifestFiles(files) {
-    this.log(`📦 处理 ${files.length} 个 manifest 文件...`, 'info');
+    this.log(`📦 处理 ${files.length} 个 manifest...`, 'info');
     this.manifestData = files;
     this.dom.downloadZipBtn.disabled = false;
   }
@@ -237,20 +220,14 @@ class DDGameBoxApp {
   async _fetchGameName(appid) {
     try {
       this.gameName = await this.api.getGameName(appid);
-      if (this.gameName) {
-        this.log(`🏷️ 游戏名称: ${this.gameName}`, 'success');
-        this._renderParseResult();
-      }
-    } catch {
-      this.log('⚠️ 无法获取游戏名称', 'warn');
-    }
+      if (this.gameName) { this.log(`🏷️ 游戏: ${this.gameName}`, 'success'); this._renderParseResult(); }
+    } catch { this.log('⚠️ 无法获取游戏名称', 'warn'); }
   }
 
   _renderParseResult() {
     const r = this.parseResult;
     if (!r) return;
     this.dom.parseResult.hidden = false;
-
     this.dom.gameInfo.innerHTML = `
       <span class="label">游戏名称</span>
       <span class="value">${this.gameName || '获取中...'}</span>
@@ -261,38 +238,24 @@ class DDGameBoxApp {
       <span class="label">密钥状态</span>
       <span class="value" style="color: ${r.missingKeys ? '#c41e3a' : '#6b8e23'}">
         ${r.missingKeys ? '有缺失密钥' : '完整密钥'}
-      </span>
-    `;
-
+      </span>`;
     this.dom.depotList.innerHTML = r.depots.map(d => `
       <div class="depot-item" data-depot-id="${d.id}">
         <span class="depot-id">${d.id}</span>
-        <span class="depot-sha" title="${d.sha || '无密钥'}">
-          ${d.sha ? d.sha.substring(0, 40) + '...' : '❌ 无密钥'}
-        </span>
-        <span class="depot-status ${d.hasKey ? 'ok' : 'missing'}">
-          ${d.hasKey ? '有密钥' : '缺密钥'}
-        </span>
-      </div>
-    `).join('') || '<div style="color:var(--label)">未找到 Depot</div>';
-
+        <span class="depot-sha" title="${d.sha || '无密钥'}">${d.sha ? d.sha.substring(0, 40) + '...' : '❌ 无密钥'}</span>
+        <span class="depot-status ${d.hasKey ? 'ok' : 'missing'}">${d.hasKey ? '有密钥' : '缺密钥'}</span>
+      </div>`).join('') || '<div style="color:var(--label)">未找到 Depot</div>';
     this.dom.keyInfo.innerHTML = r.tokens.length > 0
       ? r.tokens.map(t => `<div class="token-item">🔑 Token APPID ${t.appid}: ${t.token}</div>`).join('')
       : '<div>无额外 Token</div>';
-
-    if (r.appid || r.depots.length > 0) {
-      this.dom.fetchBtn.disabled = false;
-    }
+    if (r.appid || r.depots.length > 0) this.dom.fetchBtn.disabled = false;
   }
 
-  /**
-   * Start fetch - uses backend mode (GitHub or CORS)
-   */
   async _startFetch() {
     if (this.isFetching) return;
     this.isFetching = true;
     this.dom.fetchBtn.disabled = true;
-    this.dom.fetchBtn.textContent = '⏳ 获取中...';
+    this.dom.fetchBtn.textContent = '⏳ 处理中...';
     this.dom.progressSection.hidden = false;
     this.dom.progressContainer.innerHTML = '';
 
@@ -302,42 +265,47 @@ class DDGameBoxApp {
 
     try {
       if (mode === 'github') {
-        await this._startFetchGitHub(r, depotIds);
+        await this._fetchViaGitHub(r, depotIds);
       } else {
-        await this._startFetchLegacy(r, depotIds);
+        await this._fetchViaCORS(r, depotIds);
       }
 
-      if (this.parseResult) {
+      if (this.parseResult && this.manifestData.length > 0) {
         const vdfContent = VdfGenerator.generate(this.parseResult);
         this._showVdfPreview(vdfContent);
-        this.log('🎉 所有操作完成！', 'success');
+        this.log('🎉 完成! 点击「打包下载」获取文件', 'success');
         this.dom.downloadZipBtn.disabled = false;
       }
     } catch (e) {
-      this.log(`❌ 获取失败: ${e.message}`, 'error');
+      this.log(`❌ 失败: ${e.message}`, 'error');
     } finally {
       this.isFetching = false;
-      this.dom.fetchBtn.textContent = '🚀 获取 Manifest';
+      this.dom.fetchBtn.textContent = '🚀 开始下载';
       this.dom.fetchBtn.disabled = !this.parseResult;
       this._updateStatus();
     }
   }
 
   /**
-   * GitHub backend fetch - trigger Actions workflow
+   * GitHub 后端: 通过 Actions 查询 Steam API
    */
-  async _startFetchGitHub(r, depotIds) {
+  async _fetchViaGitHub(r, depotIds) {
     this._addProgress('github', '🔗 连接到 GitHub 后端', 0);
-    
+
     if (!this.github.token) {
-      throw new Error('需要 GitHub Token (右上角设置)');
+      this._updateProgress('github', 100);
+      this.log('', 'info');
+      this.log('⚠️ 未配置 GitHub Token', 'warn');
+      this.log('点击右上角 ❓ 查看获取教程 (30秒搞定)', 'warn');
+      this.log('设置 Token 后可绕过网络限制直接下载', 'info');
+      this.dom.tokenHelpOverlay.style.display = 'flex';
+      throw new Error('请先设置 GitHub Token (点击右上角 ❓)');
     }
 
-    this._updateProgress('github', 50);
+    this._updateProgress('github', 30);
     this.log('📡 通过 GitHub Actions 查询 Steam 数据...', 'api');
-
-    // Trigger workflow
     const depotsStr = depotIds.join(',');
+
     this.triggeredWorkflow = await this.github.triggerWorkflow('steam-downloader.yml', {
       appid: r.appid ? r.appid.toString() : '',
       depots: depotsStr,
@@ -345,55 +313,59 @@ class DDGameBoxApp {
     });
 
     if (this.triggeredWorkflow) {
-      this._updateProgress('github', 70);
+      this._updateProgress('github', 60);
       this.log(`✅ 工作流已触发: #${this.triggeredWorkflow.id}`, 'success');
-      this.log(`🔗 https://github.com/CheckCheats/DDGameBox/actions/runs/${this.triggeredWorkflow.id}`, 'info');
+      this.log(`🔗 查看进度: https://github.com/CheckCheats/DDGameBox/actions/runs/${this.triggeredWorkflow.id}`, 'info');
 
-      // Poll for completion
-      this._addProgress('poll', '⏳ 等待工作流完成...', 30);
-      for (let i = 0; i < 15; i++) {
+      this._addProgress('poll', '⏳ 等待 Steam 数据...', 20);
+      for (let i = 0; i < 20; i++) {
         await new Promise(resolve => setTimeout(resolve, 15000));
         const status = await this.github.pollWorkflow(this.triggeredWorkflow.id);
-        this._updateProgress('poll', 30 + (i / 15) * 70);
-        
+        this._updateProgress('poll', 20 + (i / 20) * 60);
+
         if (status.conclusion === 'success') {
           this._updateProgress('poll', 100);
-          this.log('✅ GitHub Actions 工作流完成!', 'success');
+          this.log('✅ GitHub Actions 完成! 检查 Artifacts 下载结果', 'success');
           break;
         }
         if (status.conclusion === 'failure') {
-          throw new Error('工作流执行失败，请检查 Actions 日志');
+          throw new Error('工作流失败 → 查看 Actions 日志');
         }
       }
-
       this._updateProgress('github', 100);
     } else {
-      // Fallback to legacy
-      this.log('⚠️ GitHub 后端未响应，降级到 CORS 代理...', 'warn');
-      await this._startFetchLegacy(r, depotIds);
+      // Fallback
+      this.log('⚠️ GitHub 后端未响应，尝试 CORS 通道...', 'warn');
+      await this._fetchViaCORS(r, depotIds);
     }
   }
 
   /**
-   * Legacy CORS proxy fetch (original method)
+   * CORS 代理通道 (可靠性较低，自动降级)
    */
-  async _startFetchLegacy(r, depotIds) {
-    if (r.appid) {
-      this._addProgress('step1', '🔍 过滤 Windows Depots (CORS)', 0);
+  async _fetchViaCORS(r, depotIds) {
+    this._addProgress('cors', '🌐 通过 CORS 代理查询', 0);
+    this.log('⚠️ CORS 代理在中国大陆可能不稳定', 'warn');
+    this.log('💡 建议切换到 GitHub 模式并设置 Token', 'info');
+
+    if (!r.appid) {
+      this._updateProgress('cors', 100);
+      return;
+    }
+
+    try {
       const filtered = await this.api.filterWindowsDepots(r.appid, depotIds);
-      this._updateProgress('step1', 100);
+      this._updateProgress('cors', 30);
       this.log(`✅ 过滤: ${filtered.length}/${depotIds.length} Windows Depot`, 'success');
 
-      this._addProgress('step2', '📡 获取 Manifest IDs', 0);
       const manifests = await this.api.fetchLatestManifests(r.appid, filtered);
       this.fetchedManifests = manifests;
-      this._updateProgress('step2', 100);
+      this._updateProgress('cors', 60);
       this.log(`✅ ${Object.keys(manifests).length} 个 manifest IDs`, 'success');
 
       let completed = 0;
       const total = Object.entries(manifests).length;
       if (total > 0) {
-        this._addProgress('step3', '⬇️ 下载 Manifest', 0);
         for (const [depotId, manifestId] of Object.entries(manifests)) {
           try {
             const rc = await this.api.fetchRequestCode(manifestId);
@@ -406,9 +378,18 @@ class DDGameBoxApp {
             this.log(`❌ Manifest ${depotId}: ${e.message}`, 'error');
           }
           completed++;
-          this._updateProgress('step3', (completed/total)*100);
+          this._updateProgress('cors', 60 + (completed/total)*40);
         }
       }
+      this._updateProgress('cors', 100);
+    } catch (e) {
+      this._updateProgress('cors', 100);
+      this.log(`❌ CORS 代理失败: ${e.message}`, 'error');
+      this.log('', 'info');
+      this.log('🔄 所有 CORS 代理均已失效 (被墙/关闭)', 'warn');
+      this.log('👉 请切换到 GitHub 模式: 点击右上角 ❓ 获取 Token', 'warn');
+      this.log('GitHub Actions 直接从美国服务器访问 Steam API', 'info');
+      this.dom.tokenHelpOverlay.style.display = 'flex';
     }
   }
 
@@ -416,20 +397,15 @@ class DDGameBoxApp {
     const div = document.createElement('div');
     div.className = 'progress-item loading';
     div.id = `progress-${id}`;
-    div.innerHTML = `
-      <div class="progress-header"><span>${label}</span><span class="progress-pct">${percent}%</span></div>
-      <div class="progress-bar"><div class="progress-fill" style="width:${percent}%"></div></div>
-    `;
+    div.innerHTML = `<div class="progress-header"><span>${label}</span><span class="progress-pct">${percent}%</span></div><div class="progress-bar"><div class="progress-fill" style="width:${percent}%"></div></div>`;
     this.dom.progressContainer.appendChild(div);
   }
 
   _updateProgress(id, percent) {
     const item = document.getElementById(`progress-${id}`);
     if (!item) return;
-    const fill = item.querySelector('.progress-fill');
-    const pct = item.querySelector('.progress-pct');
-    fill.style.width = `${percent}%`;
-    pct.textContent = `${Math.round(percent)}%`;
+    item.querySelector('.progress-fill').style.width = `${percent}%`;
+    item.querySelector('.progress-pct').textContent = `${Math.round(percent)}%`;
     if (percent >= 100) item.classList.remove('loading');
   }
 
@@ -444,13 +420,12 @@ class DDGameBoxApp {
           <button class="btn btn-secondary" onclick="this.closest('.modal-overlay').remove()">关闭</button>
           <button class="btn btn-primary" onclick="copyText(this)">📋 复制</button>
         </div>
-      </div>
-    `;
+      </div>`;
     document.body.appendChild(overlay);
     overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
     window.copyText = function(btn) {
-      const textarea = btn.closest('.modal-box').querySelector('textarea');
-      navigator.clipboard.writeText(textarea.value).then(() => {
+      const ta = btn.closest('.modal-box').querySelector('textarea');
+      navigator.clipboard.writeText(ta.value).then(() => {
         btn.textContent = '✅ 已复制';
         setTimeout(() => btn.textContent = '📋 复制', 2000);
       });
@@ -508,33 +483,21 @@ class DDGameBoxApp {
     } else if (r) {
       this.dom.statusText.textContent = `已解析: ${r.depots.length} depots`;
     } else {
-      this.dom.statusText.textContent = '就绪 - 拖入2253100.zip或Lua脚本';
+      this.dom.statusText.textContent = '就绪 - 拖入密钥开始下载';
     }
     this.dom.fileCount.textContent = `📁 ${this.manifestData.length} manifest`;
   }
 
   async _checkStatus() {
     this.dom.apiStatus.textContent = '🌐 检测中...';
-    
-    // Check GitHub API
     try {
       const limit = await this.github.getRateLimit();
       const remaining = limit?.rate?.remaining || '?';
-      this.dom.apiStatus.innerHTML = `🌐 GitHub API: <span style="color:#6b8e23">${remaining} 次可用</span>`;
+      const authed = this.github.token ? '✅' : '⚠️';
+      this.dom.apiStatus.innerHTML = `🌐 GitHub: <span style="color:#6b8e23">${authed} ${remaining}次</span>`;
     } catch {
-      this.dom.apiStatus.innerHTML = '🌐 GitHub API: <span style="color:#e65100">不可用</span>';
+      this.dom.apiStatus.innerHTML = '🌐 GitHub: <span style="color:#e65100">不可达</span>';
     }
-    
-    this._checkGitHubStatus();
-  }
-
-  async _checkGitHubStatus() {
-    if (!this.github.token) return;
-    try {
-      const limit = await this.github.getRateLimit();
-      const remaining = limit?.rate?.remaining || '?';
-      this.dom.apiStatus.innerHTML = `🌐 GitHub API: <span style="color:#6b8e23">✅ ${remaining} 次</span>`;
-    } catch {}
   }
 
   _escapeHtml(text) {
@@ -544,7 +507,6 @@ class DDGameBoxApp {
   }
 }
 
-// Boot
 document.addEventListener('DOMContentLoaded', () => {
   window.app = new DDGameBoxApp();
 });
