@@ -355,42 +355,21 @@ class GitHubBackend {
      ================================================================= */
 
   /**
-   * 打包 manifests + keys → 创建 Release → 上传 ZIP asset → 触发 workflow
-   * 返回 { runId, runUrl }
+   * 打包 manifests + keys → base64 ZIP → Contents API 上传 → 触发 workflow
+   * 完全避免上传到 uploads.github.com 的跨域问题
+   * 返回 { runId, runUrl, dataPath }
    */
   async submitViaRelease(appid, depotsToDownload, manifestFiles) {
-    const tag = `dd-${appid}-${Date.now()}`;
-    const releaseName = `DD-${appid}`;
+    // 1. 打包 manifests + depots JSON 为 ZIP
+    this.log?.(`📦 打包 manifests...`);
 
-    this.log?.(`📦 创建 Release: ${tag}...`);
-
-    // 1. 创建 Release
-    const release = await this._apiRequest('/releases', 'POST', {
-      tag_name: tag,
-      name: releaseName,
-      body: `DD Game Box - AppID ${appid}`,
-      target_commitish: 'master',
-      draft: false,
-      prerelease: false
-    });
-
-    if (!release || !release.id || !release.upload_url) {
-      throw new Error('Release 创建失败');
-    }
-
-    const uploadUrl = release.upload_url.replace('{?name,label}', '?name=data.zip');
-
-    // 2. 打包 manifests + depots JSON 为 ZIP
-    this.log?.(`📦 上传 manifests 到 Release...`);
-
-    // 2a. depots.json
+    // depots.json
     const depotsJson = JSON.stringify(depotsToDownload);
     const enc = new TextEncoder();
     const depotsBytes = enc.encode(depotsJson);
 
     // 构建 ZIP 条目
     const entries = [];
-    // depots.json entry (local file header)
     entries.push(this._makeZipEntry('depots.json', depotsBytes));
 
     // manifest files
@@ -409,36 +388,36 @@ class GitHubBackend {
     }
 
     const zipBytes = this._buildZip(entries);
+    this.log?.(`⬆️ 上传 ZIP 到仓库 (${(zipBytes.length/1024).toFixed(1)}KB)...`);
 
-    // 3. 上传 asset
-    this.log?.(`⬆️ 上传 Release asset (${(zipBytes.length/1024).toFixed(1)}KB)...`);
-    const assetResp = await fetch(uploadUrl, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${this.token}`,
-        'Content-Type': 'application/zip'
-      },
-      body: new Blob([zipBytes], { type: 'application/zip' })
+    // base64 编码
+    let binary = '';
+    const ubytes = new Uint8Array(zipBytes);
+    for (let i = 0; i < ubytes.length; i++) {
+      binary += String.fromCharCode(ubytes[i]);
+    }
+    const b64 = btoa(binary);
+
+    // 2. 推送到仓库 data/ 目录（CORS 友好）
+    const dataPath = `data/dd-${appid}-${Date.now()}.dat`;
+    await this._apiRequest(`/contents/${dataPath}`, 'PUT', {
+      message: `Upload manifests for AppID ${appid}`,
+      content: b64
     });
 
-    if (!assetResp.ok) {
-      const errText = await assetResp.text().catch(() => '');
-      throw new Error(`上传 asset 失败: ${assetResp.status} ${errText}`);
-    }
+    this.log?.('✅ ZIP 已上传到仓库 data/');
 
-    this.log?.('✅ Release asset 上传成功');
-
-    // 4. 触发 workflow，传递 release_tag
+    // 3. 触发 workflow，传递 data_path
     const run = await this.triggerWorkflow('steam-downloader.yml', {
       appid: String(appid),
       depots_json: JSON.stringify(depotsToDownload),
-      release_tag: tag
+      data_path: dataPath
     });
 
     return {
       runId: run?.id || null,
       runUrl: run?.html_url || null,
-      releaseTag: tag
+      dataPath: dataPath
     };
   }
 

@@ -8,12 +8,12 @@ on:
         required: true
         type: string
       depots_json:
-        description: 'JSON参数模式: [{"id":...}] (留空则用 Release 模式)'
+        description: 'JSON参数模式: [{"id":...,"manifestId":"...","key":"..."}]'
         required: false
         default: ''
         type: string
-      release_tag:
-        description: 'Release tag (Release 模式, 从 asset 读取 depots.json)'
+      data_path:
+        description: 'data/ 目录下的 ZIP base64 文件路径 (Release模式, 自动解码)'
         required: false
         default: ''
         type: string
@@ -32,11 +32,9 @@ jobs:
       - name: Download DepotDownloader
         run: python3 scripts/download.py download-dd
 
-      - name: Fetch Release asset
-        if: inputs.release_tag != ''
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: python3 scripts/download.py fetch-release "${{ github.repository }}" "${{ inputs.release_tag }}"
+      - name: Fetch data file
+        if: inputs.data_path != ''
+        run: python3 scripts/download.py fetch-data '${{ inputs.data_path }}'
 
       - name: Download depots
         run: python3 scripts/download.py run "${{ inputs.appid }}" '${{ inputs.depots_json }}'
@@ -51,8 +49,6 @@ jobs:
           path: game.zip
           retention-days: 7
 
-      - name: Cleanup Release asset
-        if: inputs.release_tag != '' && always()
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: python3 scripts/download.py cleanup-release "${{ github.repository }}" "${{ inputs.release_tag }}"
+      - name: Cleanup data file
+        if: inputs.data_path != '' && always()
+        run: python3 scripts/download.py delete-data '${{ inputs.data_path }}'

@@ -2,6 +2,7 @@
 *.dll
 DepotDownloader/
 requests/
+data/
 .local_downloads/
 .hermes/
 __pycache__/

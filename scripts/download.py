@@ -3,10 +3,10 @@
 GitHub Actions: DepotDownloader helper
 Usage:
   python3 download.py download-dd                       # Fetch DepotDownloader binary
-  python3 download.py fetch-release <repo> <tag>        # Download Release asset → data/
+  python3 download.py fetch-data <path>                 # Decode base64 data/ file → release_data/
   python3 download.py run <appid> '<depots_json>'       # Download depots (参数模式)
   python3 download.py package <appid>                   # Package output into game.zip
-  python3 download.py cleanup-release <repo> <tag>      # Delete Release
+  python3 download.py delete-data <path>                # Delete data file after run
 """
 import json, os, subprocess, sys, shutil, urllib.request, urllib.error, time
 
@@ -61,75 +61,77 @@ def download_dd():
     log(f"  ✅ {v.stdout.strip() or v.stderr.strip() or 'ready'}")
     log("::endgroup::")
 
-# ── Step 2: Fetch Release asset ───────────────────────────
+# ── Step 2: Fetch data file (base64) ────────────────────────
 
-def fetch_release(repo, tag):
-    """Download the Release asset ZIP and extract to release_data/."""
-    log("::group::Fetch Release asset")
+def fetch_data(path):
+    """Read base64 file from repo data/, decode → ZIP → extract."""
+    log("::group::Fetch data file")
     os.makedirs(RELEASE_DIR, exist_ok=True)
 
-    # Use gh CLI to download the asset
-    # First, get release ID from tag
-    log(f"  Repo: {repo}, Tag: {tag}")
-
-    try:
-        # gh release download <tag> --archive=zip doesn't work for asset zips
-        # We need the actual uploaded asset "data.zip"
-        r = gh("release", "download", tag,
-               "--repo", repo,
-               "--pattern", "data.zip",
-               "--dir", RELEASE_DIR,
-               capture=True)
-        log(f"  ✅ Release asset downloaded to {RELEASE_DIR}/")
-    except subprocess.CalledProcessError as e:
-        log(f"  ⚠️ gh download failed: {e.stderr}")
-        # Fallback: use API
-        log("  Fallback: downloading via API...")
-        r = gh("release", "view", tag,
-               "--repo", repo,
-               "--json", "assets",
-               capture=True)
-        assets = json.loads(r.stdout).get("assets", [])
-        asset_url = None
-        for a in assets:
-            if a["name"] == "data.zip":
-                asset_url = a["url"]
-                break
-        if not asset_url:
-            log("  ::error::data.zip not found in release assets")
-            sys.exit(1)
-        # gh api download
-        r = gh("api", f"-H", "Accept: application/octet-stream",
-               asset_url,
-               "--output", os.path.join(RELEASE_DIR, "data.zip"),
-               capture=True)
-
-    # Extract
-    zip_path = os.path.join(RELEASE_DIR, "data.zip")
-    if os.path.exists(zip_path):
-        subprocess.run(["unzip", "-o", zip_path, "-d", RELEASE_DIR],
-                       capture_output=True)
-        os.remove(zip_path)
-        log(f"  ✅ Extracted to {RELEASE_DIR}/")
-        # List what we got
-        for f in sorted(os.listdir(RELEASE_DIR)):
-            fp = os.path.join(RELEASE_DIR, f)
-            if os.path.isfile(fp):
-                log(f"    {f} ({os.path.getsize(fp)} bytes)")
-    else:
-        log("  ::error::data.zip not found after download")
+    log(f"  Path: {path}")
+    if not os.path.exists(path):
+        log(f"  ⚠️ File not found at {path}")
         sys.exit(1)
 
-    # Check depots.json
+    with open(path, 'r') as f:
+        b64 = f.read().strip()
+
+    import base64
+    try:
+        raw = base64.b64decode(b64)
+    except Exception as e:
+        log(f"  ❌ base64 decode failed: {e}")
+        sys.exit(1)
+
+    zip_path = os.path.join(RELEASE_DIR, "data.zip")
+    with open(zip_path, 'wb') as f:
+        f.write(raw)
+    log(f"  ✅ Decoded {len(raw)} bytes")
+
+    # Extract
+    subprocess.run(["unzip", "-o", zip_path, "-d", RELEASE_DIR],
+                   capture_output=True, check=True)
+    os.remove(zip_path)
+    log(f"  ✅ Extracted to {RELEASE_DIR}/")
+    for f in sorted(os.listdir(RELEASE_DIR)):
+        fp = os.path.join(RELEASE_DIR, f)
+        if os.path.isfile(fp):
+            log(f"    {f} ({os.path.getsize(fp)} bytes)")
+
     depots_json_path = os.path.join(RELEASE_DIR, "depots.json")
-    if not os.path.exists(depots_json_path):
-        log("  ⚠️ depots.json not found in release asset")
-    else:
+    if os.path.exists(depots_json_path):
         with open(depots_json_path) as f:
             depots = json.load(f)
-        log(f"  ✅ Loaded depots.json: {len(depots)} depots")
+        log(f"  ✅ depots.json: {len(depots)} depots")
+    else:
+        log("  ⚠️ depots.json not found in asset")
 
     log("::endgroup::")
+
+# ── Step 5: Delete data file ─────────────────────────────
+
+def delete_data(path):
+    """Remove the data file from the repo after workflow completes."""
+    log("::group::Cleanup data file")
+    try:
+        r = subprocess.run(["gh", "api", "-X", "DELETE",
+                           f"/repos/CheckCheats/DDGameBox/contents/{path}"],
+                           capture_output=True, text=True, check=False)
+        if r.returncode == 0:
+            log(f"  ✅ Deleted {path}")
+        else:
+            log(f"  ⚠️ gh api failed: {r.stderr.strip()}")
+            # Try git rm
+            subprocess.run(["git", "rm", path, "--ignore-unmatch"],
+                           capture_output=True, check=False)
+            subprocess.run(["git", "commit", "-m", f"Cleanup {path}"],
+                           capture_output=True, check=False)
+            subprocess.run(["git", "push"], capture_output=True, check=False)
+            log(f"  ✅ Deleted via git rm: {path}")
+    except Exception as e:
+        log(f"  ⚠️ Cleanup: {e}")
+    log("::endgroup::")
+
 
 # ── Step 3: Run DepotDownloader ───────────────────────────
 
@@ -149,7 +151,7 @@ def run_download(appid, depots_json_str):
         if os.path.exists(rj):
             with open(rj) as f:
                 depots = json.load(f)
-            log(f"📋 Release 模式: {len(depots)} depots (from release_data/)")
+            log(f"📋 Release mode: {len(depots)} depots (from release_data/)")
         else:
             log("::error::No depots_json param and no release_data/depots.json")
             sys.exit(1)
@@ -265,31 +267,7 @@ def package(appid):
     for name, sz in entries[:20]:
         log(f"    {name} ({sz/1024:.1f} KB)" if sz < 1024*1024 else f"    {name} ({sz/1024/1024:.1f} MB)")
 
-# ── Step 5: Cleanup Release ─────────────────────────────
-
-def cleanup_release(repo, tag):
-    """Delete the Release after workflow completes."""
-    log("::group::Cleanup Release")
-    try:
-        r = gh("release", "delete", tag, "--repo", repo, "--yes",
-               capture=True, check=False)
-        log(f"  ✅ Release {tag} deleted")
-    except Exception as e:
-        log(f"  ⚠️ Cleanup: {e}")
-        # Try API fallback
-        try:
-            r = gh("api", f"repos/{repo}/releases/tags/{tag}", capture=True)
-            data = json.loads(r.stdout)
-            rid = data.get("id")
-            if rid:
-                gh("api", f"repos/{repo}/releases/{rid}", "-X", "DELETE", capture=True)
-                log(f"  ✅ Release {tag} deleted via API")
-        except Exception as e2:
-            log(f"  ⚠️ API cleanup: {e2}")
-    log("::endgroup::")
-
-# ── Main ─────────────────────────────────────────────────
-
+# ── Main
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Usage: download.py <command> [args...]", file=sys.stderr)
@@ -298,11 +276,11 @@ if __name__ == "__main__":
     cmd = sys.argv[1]
     if cmd == "download-dd":
         download_dd()
-    elif cmd == "fetch-release":
-        if len(sys.argv) < 4:
-            print("Usage: download.py fetch-release <repo> <tag>", file=sys.stderr)
+    elif cmd == "fetch-data":
+        if len(sys.argv) < 3:
+            print("Usage: download.py fetch-data <path>", file=sys.stderr)
             sys.exit(1)
-        fetch_release(sys.argv[2], sys.argv[3])
+        fetch_data(sys.argv[2])
     elif cmd == "run":
         if len(sys.argv) < 3:
             print("Usage: download.py run <appid> '[<depots_json>]'", file=sys.stderr)
@@ -312,11 +290,11 @@ if __name__ == "__main__":
         run_download(appid, depots_json)
     elif cmd == "package":
         package(sys.argv[2] if len(sys.argv) > 2 else "game")
-    elif cmd == "cleanup-release":
-        if len(sys.argv) < 4:
-            print("Usage: download.py cleanup-release <repo> <tag>", file=sys.stderr)
+    elif cmd == "delete-data":
+        if len(sys.argv) < 3:
+            print("Usage: download.py delete-data <path>", file=sys.stderr)
             sys.exit(1)
-        cleanup_release(sys.argv[2], sys.argv[3])
+        delete_data(sys.argv[2])
     else:
         print(f"Unknown command: {cmd}", file=sys.stderr)
         sys.exit(1)
