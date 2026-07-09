@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>DD Game Box - Steam 游戏下载助手</title>
+<link rel="stylesheet" href="css/style.css">
 <style>
 /* ═══ 密码门 (内联, 零延迟) ═══ */
 *{margin:0;padding:0;box-sizing:border-box}
@@ -63,9 +64,8 @@ html,body{height:100%;font-family:system-ui,'Segoe UI','Microsoft YaHei',sans-se
     if(ok){
       g.style.display='none';
       a.style.display='block';
-      // Cookie 记录1小时内免输入
-      var d=new Date();d.setTime(d.getTime()+60*60*1000);
-      document.cookie='ddunlock=1;expires='+d.toUTCString()+';path=/;SameSite=Lax';
+      // localStorage 1小时免输入
+      try{localStorage.setItem('ddunlock',Date.now())}catch(e){}
     }else{
       e.textContent='密码错误';e.classList.add('show');
       i.value='';i.focus()
@@ -74,8 +74,8 @@ html,body{height:100%;font-family:system-ui,'Segoe UI','Microsoft YaHei',sans-se
   b.addEventListener('click',check);
   i.addEventListener('keydown',function(ev){if(ev.key==='Enter')check()});
   i.focus();
-  // Cookie 免输入检测 (1小时内)
-  try{if(document.cookie.match(/(?:^|; )ddunlock=/)){g.style.display='none';a.style.display='flex'}}catch(e){}
+  // localStorage 免输入检测 (1小时内)
+  try{var u=localStorage.getItem('ddunlock');if(u&&Date.now()-parseInt(u)<3600000){g.style.display='none';a.style.display='block'}}catch(e){}
 })();
 </script>
 
