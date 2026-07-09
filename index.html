@@ -62,7 +62,7 @@ html,body{height:100%;font-family:system-ui,'Segoe UI','Microsoft YaHei',sans-se
     for(var j=0;j<6;j++)if((v.charCodeAt(j)^0x5A)!==K[j]){ok=false;break}
     if(ok){
       g.style.display='none';
-      a.style.display='';
+      a.style.display='flex';
       // 记录已解锁
       try{sessionStorage.setItem('ddunlock','1')}catch(e){}
     }else{
@@ -74,7 +74,7 @@ html,body{height:100%;font-family:system-ui,'Segoe UI','Microsoft YaHei',sans-se
   i.addEventListener('keydown',function(ev){if(ev.key==='Enter')check()});
   i.focus();
   // 已解锁过直接跳过
-  try{if(sessionStorage.getItem('ddunlock')==='1'){g.style.display='none';a.style.display=''}}catch(e){}
+  try{if(sessionStorage.getItem('ddunlock')==='1'){g.style.display='none';a.style.display='flex'}}catch(e){}
 })();
 </script>
 
