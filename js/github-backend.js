@@ -47,7 +47,11 @@ class GitHubBackend {
       const err = await resp.json().catch(() => ({}));
       throw new Error(`GitHub ${resp.status}: ${err.message || '?'}`);
     }
-    return resp.json();
+    // 204 No Content → 不解析 body
+    if (resp.status === 204) return null;
+    const text = await resp.text();
+    if (!text) return null;
+    return JSON.parse(text);
   }
 
   /* =================================================================
@@ -205,7 +209,10 @@ class GitHubBackend {
       }
       throw new Error(`Gist ${resp.status}: ${err.message || '?'}`);
     }
-    return resp.json();
+    if (resp.status === 204) return null;
+    const text = await resp.text();
+    if (!text) return null;
+    return JSON.parse(text);
   }
 
   /** 获取 Releases */
