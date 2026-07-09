@@ -3,83 +3,40 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>DD Game Box - Steam 游戏下载助手</title>
+<title>DD Game Box</title>
 <link rel="stylesheet" href="css/style.css">
 <style>
-/* ═══ 密码门 (内联, 零延迟) ═══ */
 *{margin:0;padding:0;box-sizing:border-box}
 html,body{height:100%;font-family:system-ui,'Segoe UI','Microsoft YaHei',sans-serif;background:#1a0a0e}
-#gate{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;
-  background:radial-gradient(ellipse at center,#2d121b,#0d0508)}
-.gate-box{text-align:center;padding:48px;max-width:400px;width:90%}
-.gate-lock{font-size:64px;display:block;margin-bottom:12px}
-.gate-title{color:#ffd700;font-size:20px;font-weight:700;margin-bottom:8px;letter-spacing:2px}
-.gate-sub{color:#8b7355;font-size:13px;margin-bottom:24px}
-.gate-input{width:100%;padding:14px 18px;border:2px solid #4a2525;border-radius:8px;
-  background:#1a0a0e;color:#ffd700;font-size:18px;text-align:center;outline:none;transition:.2s;
-  letter-spacing:6px;font-weight:700}
-.gate-input:focus{border-color:#c41e3a;box-shadow:0 0 20px rgba(196,30,58,.3)}
-.gate-btn{width:100%;padding:14px;margin-top:12px;border:none;border-radius:8px;
-  background:linear-gradient(135deg,#c41e3a,#9a1528);color:#ffd700;font-size:16px;font-weight:700;
-  cursor:pointer;transition:.2s;letter-spacing:1px}
-.gate-btn:hover{transform:translateY(-2px);box-shadow:0 4px 16px rgba(196,30,58,.4)}
-.gate-error{color:#f87171;font-size:13px;margin-top:10px;min-height:20px;opacity:0;transition:.3s}
-.gate-error.show{opacity:1}
-.gate-footer{position:fixed;bottom:12px;left:0;right:0;text-align:center;color:#4a2525;font-size:11px}
-/* 主应用 (初始隐藏) */
+#gate{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:radial-gradient(ellipse at center,#2d121b,#0d0508)}
+.gb{text-align:center;padding:48px;max-width:400px;width:90%}
+.gl{font-size:64px;display:block;margin-bottom:12px}
+.gt{color:#ffd700;font-size:20px;font-weight:700;margin-bottom:8px;letter-spacing:2px}
+.gs{color:#8b7355;font-size:13px;margin-bottom:24px}
+.gi{width:100%;padding:14px 18px;border:2px solid #4a2525;border-radius:8px;background:#1a0a0e;color:#ffd700;font-size:18px;text-align:center;outline:none;transition:.2s;letter-spacing:6px;font-weight:700}
+.gi:focus{border-color:#c41e3a;box-shadow:0 0 20px rgba(196,30,58,.3)}
+.gbtn{width:100%;padding:14px;margin-top:12px;border:none;border-radius:8px;background:linear-gradient(135deg,#c41e3a,#9a1528);color:#ffd700;font-size:16px;font-weight:700;cursor:pointer;transition:.2s;letter-spacing:1px}
+.gbtn:hover{transform:translateY(-2px);box-shadow:0 4px 16px rgba(196,30,58,.4)}
+.ge{color:#f87171;font-size:13px;margin-top:10px;min-height:20px;opacity:0;transition:.3s}
+.ge.show{opacity:1}
+.gfoot{position:fixed;bottom:12px;left:0;right:0;text-align:center;color:#3a2020;font-size:11px}
 #app{display:none}
 </style>
 </head>
 <body>
 
-<!-- ═══ 密码门 ═══ -->
 <div id="gate">
-  <div class="gate-box">
-    <span class="gate-lock">🔒</span>
-    <div class="gate-title">谁是最帅的人</div>
-    <div class="gate-sub">输入密码进入</div>
-    <input type="password" id="gateInput" class="gate-input" placeholder="••••••" maxlength="12" autocomplete="off">
-    <button id="gateBtn" class="gate-btn">◀ 解锁 ▶</button>
-    <div id="gateError" class="gate-error">密码错误</div>
+  <div class="gb">
+    <span class="gl">🔒</span>
+    <div class="gt">谁是最帅的人</div>
+    <div class="gs">输入密码进入</div>
+    <input type="password" id="gateInput" class="gi" placeholder="••••••" maxlength="12" autocomplete="off">
+    <button id="gateBtn" class="gbtn">◀ 解锁 ▶</button>
+    <div id="gateError" class="ge">密码错误</div>
   </div>
-  <div class="gate-footer">Steam 游戏下载助手</div>
+  <div class="gfoot" id="gateFoot"></div>
 </div>
 
-<script>
-/* ═══ 密码验证 (混淆存储, 源码不可见) ═══ */
-(function(){
-  /* 混淆: XOR 0x5A 偏移存储 */
-  /* 原始 "xzh666": [120,122,104,54,54,54] → XOR 0x5A → [34,32,50,108,108,108] */
-  var K=[34,32,50,108,108,108];
-  var i=document.getElementById('gateInput'),
-      b=document.getElementById('gateBtn'),
-      e=document.getElementById('gateError'),
-      g=document.getElementById('gate'),
-      a=document.getElementById('app');
-  function check(){
-    var v=i.value;
-    if(v.length!==6){e.textContent='密码为6位';e.classList.add('show');return}
-    var ok=true;
-    for(var j=0;j<6;j++)if((v.charCodeAt(j)^0x5A)!==K[j]){ok=false;break}
-    if(ok){
-      g.style.display='none';
-      a.style.display='block';
-      // localStorage 1小时免输入
-      try{localStorage.setItem('ddunlock',Date.now())}catch(e){}
-    }else{
-      e.textContent='密码错误';e.classList.add('show');
-      i.value='';i.focus()
-    }
-  }
-  b.addEventListener('click',check);
-  i.addEventListener('keydown',function(ev){if(ev.key==='Enter')check()});
-  i.focus();
-  // localStorage 免输入检测 (1小时内)
-  try{var u=localStorage.getItem('ddunlock');if(u&&Date.now()-parseInt(u)<3600000){g.style.display='none';a.style.display='block'}}catch(e){}
-})();
-</script>
-
-<!-- ═══ 主应用 ═══ -->
 <div id="app">
   <header id="header">
     <div class="title-bar">
@@ -106,7 +63,6 @@ html,body{height:100%;font-family:system-ui,'Segoe UI','Microsoft YaHei',sans-se
         <div class="drop-hint">支持: 密钥 ZIP / Lua 脚本 / manifest / JSON</div>
         <input type="file" id="fileInput" accept=".zip,.lua,.txt,.manifest,.json" hidden multiple>
       </div>
-
       <div id="parseResult" class="result-section" hidden>
         <div class="section-title">📋 游戏信息</div>
         <div id="gameInfo" class="info-grid"></div>
@@ -121,7 +77,6 @@ html,body{height:100%;font-family:system-ui,'Segoe UI','Microsoft YaHei',sans-se
         </div>
       </div>
     </section>
-
     <section id="right-panel" class="panel">
       <div id="progressSection" class="progress-section" hidden>
         <div class="section-title">📊 下载进度</div>
@@ -144,12 +99,11 @@ html,body{height:100%;font-family:system-ui,'Segoe UI','Microsoft YaHei',sans-se
     <div class="status-bar">
       <span id="statusText">🔒 已解锁 · 拖入密钥开始</span>
       <span id="fileCount">-</span>
-      <span id="apiStatus">🌐 检测中...</span>
+      <span id="apiStatus">🌐 就绪</span>
     </div>
   </footer>
 </div>
 
-<!-- ═══ Token 帮助模态框 ═══ -->
 <div id="tokenHelpOverlay" class="modal-overlay" style="display:none">
   <div class="modal-box token-help">
     <h3>🔐 GitHub Token</h3>
@@ -157,15 +111,11 @@ html,body{height:100%;font-family:system-ui,'Segoe UI','Microsoft YaHei',sans-se
     <ol>
       <li>打开 <a href="https://github.com/settings/tokens/new?description=DDGameBox&scopes=repo,workflow" target="_blank" rel="noopener">github.com/settings/tokens/new</a></li>
       <li>过期时间选 <b>No expiration</b></li>
-      <li>勾选权限: ☑ <b>repo</b> (全选) + ☑ <b>workflow</b></li>
+      <li>勾选: ☑ <b>repo</b> + ☑ <b>workflow</b></li>
       <li>点击 <b>Generate token</b></li>
       <li>复制 <code>ghp_xxxx...</code> 粘贴到上方输入框</li>
-      <li>点击 💾 自动保存到 GitHub 云端</li>
+      <li>点击 💾 自动保存</li>
     </ol>
-    <p style="margin-top:12px;padding:10px;background:#fff8e8;border-radius:6px;font-size:13px">
-      ⚡ 点击 <b>⚡ 一键获取</b> 按钮直接跳转创建页面<br>
-      🔒 Token 经 <b>GitHub Gist 加密存储</b>，跨设备可用
-    </p>
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="document.getElementById('tokenHelpOverlay').style.display='none'">关闭</button>
       <button class="btn btn-primary" onclick="window.open('https://github.com/settings/tokens/new?description=DDGameBox&scopes=repo,workflow','_blank')">创建 Token</button>
@@ -173,7 +123,6 @@ html,body{height:100%;font-family:system-ui,'Segoe UI','Microsoft YaHei',sans-se
   </div>
 </div>
 
-<!-- ═══ 脚本 (async 延迟加载) ═══ -->
 <script src="js/lua-parser.js"></script>
 <script src="js/api-client.js"></script>
 <script src="js/vdf-generator.js"></script>
@@ -181,5 +130,44 @@ html,body{height:100%;font-family:system-ui,'Segoe UI','Microsoft YaHei',sans-se
 <script src="js/zip-handler.js"></script>
 <script src="js/github-backend.js"></script>
 <script src="js/app.js"></script>
+
+<!-- ═══ 密码门 (放最后, 确保所有 DOM 已解析) ═══ -->
+<script>
+(function(){
+  /* ═══ BUILD: 20260709-d8f3a7c2e1b04 ═══ */
+  var _V='20260709-d8f3a7c2e1b04';
+  document.getElementById('gateFoot').textContent='DD Game Box · '+_V;
+  var el=document.getElementById('app');
+  if(el){el.querySelector('#apiStatus').textContent='🌐 '+_V}
+
+  /* 混淆: XOR 0x5A */
+  var K=[34,32,50,108,108,108];
+  var i=document.getElementById('gateInput'),
+      b=document.getElementById('gateBtn'),
+      e=document.getElementById('gateError'),
+      g=document.getElementById('gate');
+  function show(){
+    g.style.display='none';
+    el.style.display='block';
+  }
+  function check(){
+    var v=i.value;
+    if(v.length!==6){e.textContent='密码为6位';e.classList.add('show');return}
+    var ok=true;
+    for(var j=0;j<6;j++)if((v.charCodeAt(j)^0x5A)!==K[j]){ok=false;break}
+    if(ok){
+      show();
+      try{localStorage.setItem('ddunlock',Date.now())}catch(x){}
+    }else{
+      e.textContent='密码错误';e.classList.add('show');
+      i.value='';i.focus()
+    }
+  }
+  b.addEventListener('click',check);
+  i.addEventListener('keydown',function(ev){if(ev.key==='Enter')check()});
+  i.focus();
+  try{var u=localStorage.getItem('ddunlock');if(u&&Date.now()-parseInt(u)<3600000){show()}}catch(x){}
+})();
+</script>
 </body>
 </html>

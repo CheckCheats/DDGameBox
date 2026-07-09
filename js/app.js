@@ -177,12 +177,11 @@ class DDGameBoxApp {
     const start = Date.now();
     const result = await this.github.quickCheck();
     const ms = Date.now() - start;
-
     if (result.ok) {
       const authed = result.authed ? '✅' : '⚠️';
       this.dom.apiStatus.innerHTML = `🌐 ${authed} ${result.remaining}次 · <span style="font-size:10px;opacity:.6">${ms}ms</span>`;
     } else {
-      this.dom.apiStatus.innerHTML = '🌐 <span style="color:#e65100">不可达</span>';
+      this.dom.apiStatus.innerHTML = '🌐 ⚠️ API 受限';
     }
   }
 

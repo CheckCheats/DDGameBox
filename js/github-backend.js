@@ -57,16 +57,21 @@ class GitHubBackend {
     const result = { ok: false, authed: false, remaining: 0 };
     try {
       const resp = await fetch('https://api.github.com/rate_limit', {
-        method: 'HEAD',
+        method: 'GET',
         headers: this.token ? { 'Authorization': `Bearer ${this.token}` } : {},
         signal: AbortSignal.timeout(5000)
       });
       result.ok = resp.ok;
       if (resp.ok) {
-        result.remaining = parseInt(resp.headers.get('X-RateLimit-Remaining') || '0');
+        const data = await resp.json();
+        result.remaining = data?.rate?.remaining || 0;
         result.authed = !!this.token;
       }
-    } catch {}
+    } catch (e) {
+      // CORS blocked (GitHub Pages → api.github.com), silently degrade
+      result.ok = false;
+      result.corsBlocked = true;
+    }
     return result;
   }
 
