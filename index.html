@@ -63,8 +63,9 @@ html,body{height:100%;font-family:system-ui,'Segoe UI','Microsoft YaHei',sans-se
     if(ok){
       g.style.display='none';
       a.style.display='flex';
-      // 记录已解锁
-      try{sessionStorage.setItem('ddunlock','1')}catch(e){}
+      // Cookie 记录1小时内免输入
+      var d=new Date();d.setTime(d.getTime()+60*60*1000);
+      document.cookie='ddunlock=1;expires='+d.toUTCString()+';path=/;SameSite=Lax';
     }else{
       e.textContent='密码错误';e.classList.add('show');
       i.value='';i.focus()
@@ -73,8 +74,8 @@ html,body{height:100%;font-family:system-ui,'Segoe UI','Microsoft YaHei',sans-se
   b.addEventListener('click',check);
   i.addEventListener('keydown',function(ev){if(ev.key==='Enter')check()});
   i.focus();
-  // 已解锁过直接跳过
-  try{if(sessionStorage.getItem('ddunlock')==='1'){g.style.display='none';a.style.display='flex'}}catch(e){}
+  // Cookie 免输入检测 (1小时内)
+  try{if(document.cookie.match(/(?:^|; )ddunlock=/)){g.style.display='none';a.style.display='flex'}}catch(e){}
 })();
 </script>
 
