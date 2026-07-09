@@ -1,0 +1,48 @@
+"""
+地道游戏盒 V14 - JSON Manifest 文件格式分析
+===========================================
+
+文件名格式: "<下载进度百分比>% - <steam_appid>.json"
+例如: "100% - 228990.json" (游戏ID 228990, 下载100%完成)
+
+文件内容格式:
+--------------
+
+行1:
+    版本标记: "1|" 
+    后接JSON对象，结构与Steam Depot manifest类似
+
+JSON结构:
+    key:   文件路径 (相对于Steam depot根目录)
+    value: 字符串数组 [chunksize_sha1hex, ...]
+
+    其中 chunksize_sha1hex = "<chunk_size>_<sha1_hex>"
+    
+    示例:
+    "Engine/Binaries/ThirdParty/DbgHelp/dbghelp.dll": [
+        "2097152_1f8ce8e6e231114ab1735326b41382e892124a5f",
+        "1048576_4c1ce66c8ceb76651a875b19d611fca61a27c52b",
+        "0_b8ebec33616a7433178599832a3412b326c3d1bf"
+    ]
+
+用途: 
+    记录游戏文件下载进度/验证。应用程序通过解析这些 JSON 文件
+    来恢复中断的下载任务，验证已下载文件的完整性。
+"""
+
+# DepotDownloader 数据目录结构:
+# DepotDownloader/
+#   ddv20.exe          # Steam Depot 下载器
+#   depot/
+#     config.vdf       # Steam depot 解密密钥配置
+#     *.manifest       # Steam depot 下载清单 (二进制格式)
+
+# config.vdf 格式:
+# "depots"
+# {
+#     "2253101"          # Steam depot ID
+#     {
+#         "DecryptionKey" "2549c73b78694079c57a8417dd02f5d6e4c6c6286a0483187a49bdbdf9857241"
+#     }
+#     ...
+# }

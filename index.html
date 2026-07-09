@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DD Game Box Web - Steam 游戏下载助手 v2.0</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="app">
+  <!-- 顶部标题栏 -->
+  <header id="header">
+    <div class="title-bar">
+      <div class="title-text">🎮 DD Game Box Web v2.0</div>
+      <div class="title-sub">Steam 游戏下载助手 | GitHub 后端驱动</div>
+    </div>
+    <div class="header-controls">
+      <input type="password" id="ghTokenInput" placeholder="GitHub Token (可选, 提高API限额)" class="token-input">
+      <button id="ghSaveTokenBtn" class="btn btn-small">💾</button>
+      <div class="backend-selector">
+        <label><input type="radio" name="backend" value="github" checked> GitHub</label>
+        <label><input type="radio" name="backend" value="cors"> CORS</label>
+      </div>
+    </div>
+  </header>
+
+  <main id="main-container">
+    <!-- 左列: 上传和解析 -->
+    <section id="left-panel" class="panel">
+      <!-- 文件拖放区 -->
+      <div class="drop-zone" id="dropZone">
+        <div class="drop-icon">📁</div>
+        <div class="drop-text">拖入 2253100.zip 或 Lua 脚本</div>
+        <div class="drop-hint">支持: .zip, .lua, .txt, .manifest, .json</div>
+        <input type="file" id="fileInput" accept=".zip,.lua,.txt,.manifest,.json" hidden multiple>
+      </div>
+
+      <!-- 解析结果 -->
+      <div id="parseResult" class="result-section" hidden>
+        <div class="section-title">📋 游戏信息</div>
+        <div id="gameInfo" class="info-grid"></div>
+        <div class="section-title">📦 Depot 列表</div>
+        <div id="depotList" class="depot-list"></div>
+        <div class="section-title">🔑 密钥信息</div>
+        <div id="keyInfo" class="key-info"></div>
+        <!-- 操作按钮 -->
+        <div id="actions" class="action-bar">
+          <button id="fetchBtn" class="btn btn-primary" disabled>🚀 获取 Manifest</button>
+          <button id="downloadZipBtn" class="btn btn-success" disabled>📦 打包下载</button>
+          <button id="clearBtn" class="btn btn-secondary">🗑️ 清空</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 右列: 进度和日志 -->
+    <section id="right-panel" class="panel">
+      <!-- 进度区 -->
+      <div id="progressSection" class="progress-section" hidden>
+        <div class="section-title">📊 下载进度</div>
+        <div id="progressContainer"></div>
+      </div>
+
+      <!-- 日志区 -->
+      <div class="log-section">
+        <div class="section-title">📜 操作日志</div>
+        <div class="log-tabs">
+          <button class="log-tab active" data-type="all">全部</button>
+          <button class="log-tab" data-type="info">信息</button>
+          <button class="log-tab" data-type="success">成功</button>
+          <button class="log-tab" data-type="error">错误</button>
+        </div>
+        <div id="logArea" class="log-area"></div>
+      </div>
+    </section>
+  </main>
+
+  <!-- 底部状态栏 -->
+  <footer id="footer">
+    <div class="status-bar">
+      <span id="statusText">就绪 - 拖入 2253100.zip 开始</span>
+      <span id="fileCount">-</span>
+      <span id="apiStatus">🌐 API 状态: 待检测</span>
+    </div>
+  </footer>
+</div>
+
+<!-- 脚本 -->
+<script src="js/lua-parser.js"></script>
+<script src="js/api-client.js"></script>
+<script src="js/vdf-generator.js"></script>
+<script src="js/zip-packager.js"></script>
+<script src="js/zip-handler.js"></script>
+<script src="js/github-backend.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
