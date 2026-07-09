@@ -1,71 +1,63 @@
-# 🎮 DD Game Box Web
+# 🎮 DD Game Box Web v2.0
 
-> **注意:** 此网页版为[地道游戏盒 V14](https://github.com/CheckCheats/DDGameBox)的逆向工程重构，完全在浏览器端运行。
+> Steam 游戏下载助手 — GitHub 后端驱动 | 反向工程重构[地道游戏盒 V14](https://github.com/CheckCheats/DDGameBox)
 
 ## 🌐 在线地址
 
-`https://checkcheats.github.io/DDGameBox/`
+- **⭐ 推荐 CDN**: https://cdn.jsdelivr.net/gh/CheckCheats/DDGameBox@master/index.html
+- **GitHub Pages**: https://checkcheats.github.io/DDGameBox/
+- **本地**: 直接打开 `index.html`
 
-## ✨ 功能
+> 如果 Pages 打不开，请使用 CDN 链接 (jsDelivr 全球加速)
 
-- 📁 **拖入/浏览**上传 SteamCMD Lua 脚本
-- 🔍 **自动解析**游戏配置 (APPID、Depot、密钥)
-- 📡 **多 API 容错**获取 Manifest 信息
-- 📦 **一键打包**下载 manifest + config.vdf
-- 📊 **可视化进度**跟踪
-- 🎨 **暖色复古主题**，移植原应用配色
+## ✨ v2.0 新功能
+
+- 🗜️ **ZIP 上传**: 支持拖入 `2253100.zip` 格式文件，自动解析游戏信息
+- 🔗 **GitHub 后端**: 使用 GitHub API + Actions 替代不稳定的 CORS 代理
+- 🔄 **双模式**: GitHub API / CORS 代理 可切换
+- 📊 **工作流追踪**: 实时查看 GitHub Actions 下载进度
+- 📁 **多格式**: 支持 .zip / .lua / .txt / .manifest / .json
 
 ## 📥 使用说明
 
-1. **准备文件**: 获取 SteamCMD Lua 脚本 (如 `ac_origin.lua`)
-2. **上传**: 拖入网页或点击选择文件
-3. **解析**: 自动显示游戏信息、Depot 列表、密钥状态
-4. **获取**: 点击"获取 Manifest"，自动从多个 API 下载
-5. **打包**: 下载包含 manifests + config.vdf 的 ZIP 包
-6. **下载游戏**: 将 ZIP 解压到 ddv20.exe 目录，运行 `start_download.bat`
+1. **上传**: 拖入 `2253100.zip` 或 SteamCMD Lua 脚本
+2. **解析**: 自动显示游戏 AppID、Depot 列表、密钥状态
+3. **配置 Token** (可选): 右上角输入 GitHub Token 提高 API 限额
+4. **获取**: 选择 GitHub 后端 → 点击"获取 Manifest"
+5. **打包**: 下载包含 manifests + config.vdf 的 ZIP
 
-## 🏗️ 本地开发
-
-```bash
-# 直接打开
-open web/index.html
-
-# 或使用 Python 简单服务器
-cd web && python -m http.server 8080
-# 访问 http://localhost:8080
-```
-
-## 📁 项目结构
+## 🏗️ 项目结构
 
 ```
-web/
-├── index.html              # 主页面
-├── css/
-│   └── style.css           # 样式表（暖色主题）
+├── index.html                    # 主页面
+├── css/style.css                 # 暖色主题样式
 ├── js/
-│   ├── lua-parser.js       # Lua 脚本解析器
-│   ├── api-client.js       # API 客户端（多源容错）
-│   ├── vdf-generator.js    # VDF 配置生成
-│   ├── zip-packager.js     # ZIP 打包下载
-│   └── app.js              # 主应用逻辑
+│   ├── lua-parser.js             # SteamCMD Lua 解析器
+│   ├── api-client.js             # 多源 CORS API 客户端
+│   ├── github-backend.js         # GitHub API 后端
+│   ├── vdf-generator.js          # VDF 配置生成
+│   ├── zip-packager.js           # ZIP 打包下载
+│   ├── zip-handler.js            # DDGameBox ZIP 格式解析
+│   └── app.js                    # 主应用 (v2.0)
 └── .github/workflows/
-    └── deploy.yml           # GitHub Pages 部署
+    ├── deploy.yml                # Pages 部署
+    └── steam-downloader.yml      # Steam 下载后端 (Actions)
 ```
 
 ## 🔧 技术栈
 
-- **HTML5** + **CSS3** (原生，无框架)
-- **Vanilla JavaScript** (ES6+)
-- **CORS 代理**: 绕过 API 跨域限制
-- **JSZip**: 浏览器端 ZIP 打包
-- **GitHub Pages**: CDN 托管
+- **Vanilla JavaScript ES6+** — 零框架依赖
+- **GitHub Actions** — 服务端下载引擎
+- **GitHub API** — 可靠的后端通道
+- **jsDelivr CDN** — 全球加速访问
+- **JSZip** — 浏览器 ZIP 处理
 
-## ⚠️ 已知限制
+## ⚠️ 注意事项
 
-- 浏览器无法直接连接 Steam CDN，需通过 CORS 代理
-- manifest 文件下载需代理可用
-- 实际游戏文件下载需配合 ddv20.exe (DepotDownloader) 使用
+- GitHub Pages 可能在某些网络被阻断 → 使用 CDN 链接
+- GitHub API 未认证: 60次/小时 → 绑定 Token: 5000次/小时
+- 实际游戏下载需配合 DepotDownloader (ddv20.exe)
 
-## 📄 许可证
+## 📄 许可
 
 仅供学习研究使用
