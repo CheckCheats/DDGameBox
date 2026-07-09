@@ -381,11 +381,7 @@ class GitHubBackend {
     const uploadUrl = release.upload_url.replace('{?name,label}', '?name=data.zip');
 
     // 2. 打包 manifests + depots JSON 为 ZIP
-    // 使用 JSZip 或手动构建简单 ZIP
     this.log?.(`📦 上传 manifests 到 Release...`);
-
-    // 构建一个简单 ZIP 包含 depots.json + manifests/
-    const zipParts = [];
 
     // 2a. depots.json
     const depotsJson = JSON.stringify(depotsToDownload);
@@ -420,8 +416,7 @@ class GitHubBackend {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${this.token}`,
-        'Content-Type': 'application/zip',
-        'Content-Length': zipBytes.length.toString()
+        'Content-Type': 'application/zip'
       },
       body: new Blob([zipBytes], { type: 'application/zip' })
     });

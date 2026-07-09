@@ -8,8 +8,14 @@ on:
         required: true
         type: string
       depots_json:
-        description: 'JSON: [{"id":2253101,"manifestId":"...","key":"..."}]'
-        required: true
+        description: 'JSON参数模式: [{"id":...}] (留空则用 Release 模式)'
+        required: false
+        default: ''
+        type: string
+      release_tag:
+        description: 'Release tag (Release 模式, 从 asset 读取 depots.json)'
+        required: false
+        default: ''
         type: string
 
 jobs:
@@ -26,6 +32,12 @@ jobs:
       - name: Download DepotDownloader
         run: python3 scripts/download.py download-dd
 
+      - name: Fetch Release asset
+        if: inputs.release_tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/download.py fetch-release "${{ github.repository }}" "${{ inputs.release_tag }}"
+
       - name: Download depots
         run: python3 scripts/download.py run "${{ inputs.appid }}" '${{ inputs.depots_json }}'
 
@@ -38,3 +50,9 @@ jobs:
           name: steam-game-${{ inputs.appid }}
           path: game.zip
           retention-days: 7
+
+      - name: Cleanup Release asset
+        if: inputs.release_tag != '' && always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/download.py cleanup-release "${{ github.repository }}" "${{ inputs.release_tag }}"
