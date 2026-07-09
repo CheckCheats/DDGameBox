@@ -80,7 +80,7 @@ class DDGameBoxApp {
 
     // ═══ 一键获取 Token ═══
     this.dom.ghQuickTokenBtn.addEventListener('click', () => {
-      window.open('https://github.com/settings/tokens/new?description=DDGameBox&scopes=repo,workflow', '_blank');
+      window.open('https://github.com/settings/tokens/new?description=DDGameBox&scopes=repo,workflow,gist', '_blank');
       this.dom.tokenHelpOverlay.style.display = 'flex';
     });
 

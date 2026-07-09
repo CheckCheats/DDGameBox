@@ -126,6 +126,12 @@ class GitHubBackend {
     document.cookie = `${this.GIST_COOKIE}=${encodeURIComponent(id)};max-age=${60*60*24*365};path=/;SameSite=Lax`;
   }
 
+  /** 清除 Gist ID cookie */
+  _clearGistId() {
+    document.cookie = `${this.GIST_COOKIE}=;max-age=0;path=/`;
+    this._cache.delete('user_config');
+  }
+
   /** 
    * 读取用户配置: 从 Gist 加载 token
    * 需要用户已保存 token (用 token 读自己的 gist)

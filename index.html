@@ -109,16 +109,16 @@ html,body{height:100%;font-family:system-ui,'Segoe UI','Microsoft YaHei',sans-se
     <h3>🔐 GitHub Token</h3>
     <p style="margin-bottom:12px;color:var(--label);font-size:14px">用于调用 GitHub API 触发后台 Steam 下载</p>
     <ol>
-      <li>打开 <a href="https://github.com/settings/tokens/new?description=DDGameBox&scopes=repo,workflow" target="_blank" rel="noopener">github.com/settings/tokens/new</a></li>
+      <li>打开 <a href="https://github.com/settings/tokens/new?description=DDGameBox&scopes=repo,workflow,gist" target="_blank" rel="noopener">github.com/settings/tokens/new</a></li>
       <li>过期时间选 <b>No expiration</b></li>
-      <li>勾选: ☑ <b>repo</b> + ☑ <b>workflow</b></li>
+      <li>勾选: ☑ <b>repo</b> + ☑ <b>workflow</b> + ☑ <b>gist</b></li>
       <li>点击 <b>Generate token</b></li>
       <li>复制 <code>ghp_xxxx...</code> 粘贴到上方输入框</li>
       <li>点击 💾 自动保存</li>
     </ol>
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="document.getElementById('tokenHelpOverlay').style.display='none'">关闭</button>
-      <button class="btn btn-primary" onclick="window.open('https://github.com/settings/tokens/new?description=DDGameBox&scopes=repo,workflow','_blank')">创建 Token</button>
+      <button class="btn btn-primary" onclick="window.open('https://github.com/settings/tokens/new?description=DDGameBox&scopes=repo,workflow,gist','_blank')">创建 Token</button>
     </div>
   </div>
 </div>
